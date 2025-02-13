@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Existing rules...
+
+    match /Payments/{paymentId} {
+      allow read: if true;  // Allow read access to authenticated users
+      allow create: if request.resource.data.reference != null
+                   && request.resource.data.contractNumber != null
+                   && request.resource.data.amount > 0
+                   && request.resource.data.paymentMethod in ['Cash', 'Credit Card', 'Debit Card', 'Bank Transfer']
+                   && request.resource.data.status in ['Completed', 'Pending', 'Failed']
+                   && request.resource.data.receiptUrl != null;
+      allow update: if request.resource.data.reference == resource.data.reference  // Prevent reference modification
+                   && request.resource.data.contractNumber == resource.data.contractNumber;  // Prevent contract number modification
+      allow delete: if false;  // Prevent payment deletion
+    }
+  }
+} 
