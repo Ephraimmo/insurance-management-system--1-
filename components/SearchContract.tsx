@@ -535,6 +535,7 @@ export function SearchContract({ userRole }: SearchContractProps) {
             </div>
             <div className="flex items-center space-x-4">
               <Button 
+                id="Search"
                 type="submit" 
                 disabled={searchLoading}
                 className="relative"

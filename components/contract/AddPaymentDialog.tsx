@@ -93,6 +93,25 @@ export function AddPaymentDialog({ open, onOpenChange }: AddPaymentDialogProps) 
     }
   }
 
+  const handleSubmit = async () => {
+    if (!contractDetails || !paymentMethod || !receiptFile) return
+    
+    setIsSubmitting(true)
+    try {
+      // TODO: Implement payment submission logic
+      // This would include:
+      // 1. Upload receipt file to storage
+      // 2. Create payment record in Firestore
+      // 3. Close dialog on success
+      onOpenChange(false)
+    } catch (err) {
+      console.error('Error submitting payment:', err)
+      setError('Failed to submit payment')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
@@ -122,6 +141,7 @@ export function AddPaymentDialog({ open, onOpenChange }: AddPaymentDialogProps) 
                 />
               </div>
               <Button 
+                id="Search"
                 onClick={lookupContract} 
                 disabled={isLookingUp || !contractNumber.trim()}
                 className="lookup-button"
@@ -168,13 +188,13 @@ export function AddPaymentDialog({ open, onOpenChange }: AddPaymentDialogProps) 
                   value={paymentMethod} 
                   onValueChange={setPaymentMethod}
                 >
-                  <SelectTrigger className="col-span-3">
+                  <SelectTrigger id="paymentMethod" className="col-span-3">
                     <SelectValue placeholder="Select payment method" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="cash">Cash</SelectItem>
-                    <SelectItem value="card">Card</SelectItem>
-                    <SelectItem value="eft">EFT</SelectItem>
+                    <SelectItem id="Cash" data-value="Cash" value="cash">Cash</SelectItem>
+                    <SelectItem id="Card" data-value="Card" value="card">Card</SelectItem>
+                    <SelectItem id="EFT" data-value="EFT" value="eft">EFT</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -194,10 +214,15 @@ export function AddPaymentDialog({ open, onOpenChange }: AddPaymentDialogProps) 
               </div>
 
               <div className="flex justify-end gap-2 mt-4">
-                <Button variant="outline" onClick={() => onOpenChange(false)}>
+                <Button 
+                  id="Cancel"
+                  variant="outline" 
+                  onClick={() => onOpenChange(false)}
+                >
                   Cancel
                 </Button>
                 <Button 
+                  id="Add Payment"
                   onClick={handleSubmit}
                   disabled={isSubmitting || !paymentMethod || !receiptFile}
                 >

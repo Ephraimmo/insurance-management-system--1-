@@ -173,9 +173,14 @@ export default function InsuranceManagementSystem() {
 
             {/* Error Message */}
             {error && (
-              <div className="bg-red-50 border-l-4 border-red-500 p-3 flex items-center space-x-3">
+              <div 
+                id={error.replace(/\s+/g, '-').toLowerCase()}
+                className="bg-red-50 border-l-4 border-red-500 p-3 flex items-center space-x-3"
+              >
                 <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-                <p className="text-sm text-red-700">{error}</p>
+                <p id={`error-${error.replace(/\s+/g, '-').toLowerCase()}`} className="text-sm text-red-700">
+                  {error}
+                </p>
               </div>
             )}
 
@@ -183,13 +188,15 @@ export default function InsuranceManagementSystem() {
             <form onSubmit={handleSubmit} className="space-y-3">
               {/* Dynamic Input Field */}
               <div>
-                <Label htmlFor="login-id" className="text-sm">{isAdmin ? 'Email' : 'Username'}</Label>
+                <Label htmlFor={isAdmin ? 'Email' : 'Username'} className="text-sm">
+                  {isAdmin ? 'Email' : 'Username'}
+                </Label>
                 <div className="mt-1 relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <User className="h-4 w-4 text-slate-400" />
                   </div>
                   <Input
-                    id="login-id"
+                    id={isAdmin ? 'Email' : 'Username'}
                     type={isAdmin ? 'email' : 'text'}
                     value={isAdmin ? email : username}
                     onChange={(e) => isAdmin ? setEmail(e.target.value) : setUsername(e.target.value)}
@@ -201,13 +208,13 @@ export default function InsuranceManagementSystem() {
 
               {/* Password Field */}
               <div>
-                <Label htmlFor="password" className="text-sm">Password</Label>
+                <Label htmlFor="Password" className="text-sm">Password</Label>
                 <div className="mt-1 relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <Lock className="h-4 w-4 text-slate-400" />
                   </div>
                   <Input
-                    id="password"
+                    id="Password"
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -219,22 +226,23 @@ export default function InsuranceManagementSystem() {
 
               {/* Environment Selector */}
               <div>
-                <Label htmlFor="environment" className="text-sm">Environment</Label>
+                <Label htmlFor="Environment" className="text-sm">Environment</Label>
                 <Select value={environment} onValueChange={setEnvironment}>
-                  <SelectTrigger className="h-9">
+                  <SelectTrigger id="Environment" className="h-9">
                     <SelectValue placeholder="Select environment" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="<User Default>">&lt;User Default&gt;</SelectItem>
-                    <SelectItem value="Production">Production</SelectItem>
-                    <SelectItem value="Testing">Testing</SelectItem>
-                    <SelectItem value="Development">Development</SelectItem>
+                    <SelectItem id="User Default" data-value="<User Default>" value="<User Default>">&lt;User Default&gt;</SelectItem>
+                    <SelectItem id="Production" data-value="Production" value="Production">Production</SelectItem>
+                    <SelectItem id="Testing" data-value="Testing" value="Testing">Testing</SelectItem>
+                    <SelectItem id="Development" data-value="Development" value="Development">Development</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               {/* Submit Button */}
               <Button
+                id="Sign in"
                 type="submit"
                 disabled={isLoading}
                 className="w-full h-9"
@@ -245,15 +253,15 @@ export default function InsuranceManagementSystem() {
               {/* Admin Checkbox */}
               <div className="flex items-center gap-2">
                 <Checkbox 
-                  id="admin-login"
+                  id="Login as Admin"
+                  data-value="Login as Admin"
                   checked={isAdmin}
                   onCheckedChange={(checked) => setIsAdmin(checked as boolean)}
                 />
-                <Label htmlFor="admin-login" className="text-sm">
+                <Label htmlFor="Login as Admin" name="Login as Admin" className="text-sm">
                   Login as Admin
                 </Label>
               </div>
-              
             </form>
           </div>
         </div>

@@ -1,5 +1,6 @@
 "use client"
 
+import React from "react"
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -8,6 +9,9 @@ import { collection, addDoc, query, where, getDocs, doc, getDoc, deleteDoc } fro
 import { db } from "@/src/FirebaseConfg"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Loader2, AlertCircle, UserPlus, UserX, UserCheck, AlertTriangle } from "lucide-react"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+
+type ErrorState = { [key: string]: string } | null;
 
 type DependentData = {
   id?: string
@@ -205,42 +209,77 @@ const removeDependentFromFirestore = async (dependentId: string, contractNumber:
   }
 }
 
-const validateDependentData = (data: DependentData): string | null => {
-  // Validate ID Number format for South African IDs
-  if (data.personalInfo.idType === "South African ID" && 
-      !/^\d{13}$/.test(data.personalInfo.idNumber)) {
-    return "South African ID number must be 13 digits"
+const validateDependentData = (data: DependentData): string[] => {
+  const errors: string[] = [];
+
+  // Personal Information Validation (Required)
+  if (!data.personalInfo.firstName?.trim()) errors.push("First Name is required");
+  if (!data.personalInfo.lastName?.trim()) errors.push("Last Name is required");
+  if (!data.personalInfo.initials?.trim()) errors.push("Initials are required");
+  if (!data.personalInfo.dateOfBirth) errors.push("Date of Birth is required");
+  if (!data.personalInfo.gender?.trim()) errors.push("Gender is required");
+  if (!data.personalInfo.relationshipToMainMember?.trim()) errors.push("Relationship to Main Member is required");
+  if (!data.personalInfo.nationality?.trim()) errors.push("Nationality is required");
+  if (!data.personalInfo.idType?.trim()) errors.push("Type of ID is required");
+  if (!data.personalInfo.idNumber?.trim()) errors.push("ID Number is required");
+  if (!data.personalInfo.dependentStatus) errors.push("Dependent Status is required");
+
+  // ID Number Validation for South African ID
+  if (data.personalInfo.idType === "South African ID" && data.personalInfo.idNumber) {
+    if (!/^\d{13}$/.test(data.personalInfo.idNumber.trim())) {
+      errors.push("South African ID number must be 13 digits");
+    }
   }
 
   // Validate age based on relationship
   if (data.personalInfo.dateOfBirth) {
-    const age = new Date().getFullYear() - data.personalInfo.dateOfBirth.getFullYear()
-    
+    const age = new Date().getFullYear() - data.personalInfo.dateOfBirth.getFullYear();
     if (data.personalInfo.relationshipToMainMember === "Child" && age >= 21) {
-      return "Child dependents must be under 21 years old"
+      errors.push("Child dependents must be under 21 years old");
     }
   }
 
-  // Validate contact details
+  // Contact Details Validation (Optional)
   if (data.contactDetails.length > 0) {
-    for (const contact of data.contactDetails) {
-      if (contact.type === "Email" && 
-          !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.value)) {
-        return "Invalid email format"
+    data.contactDetails.forEach((contact, index) => {
+      if (!contact.type) errors.push(`Contact type is required for contact #${index + 1}`);
+      if (!contact.value?.trim()) errors.push(`Contact value is required for contact #${index + 1}`);
+      
+      // Email validation
+      if (contact.type === "Email" && contact.value) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(contact.value.trim())) {
+          errors.push(`Invalid email format for contact #${index + 1}`);
+        }
       }
-      if (contact.type === "Phone Number" && 
-          !/^(\+27|0)\d{9}$/.test(contact.value)) {
-        return "Invalid South African phone number format"
+      
+      // Phone number validation
+      if (contact.type === "Phone Number" && contact.value) {
+        const phoneRegex = /^[0-9+\-\s()]{10,}$/;
+        if (!phoneRegex.test(contact.value.trim())) {
+          errors.push(`Invalid phone number format for contact #${index + 1}`);
+        }
       }
+    });
+  }
+
+  // Address Details Validation (Optional)
+  if (Object.values(data.addressDetails).some(value => value.trim() !== "")) {
+    // If any address field is filled, validate all required address fields
+    if (!data.addressDetails.streetAddress?.trim()) errors.push("Street Address is required when providing address details");
+    if (!data.addressDetails.city?.trim()) errors.push("City is required when providing address details");
+    if (!data.addressDetails.stateProvince?.trim()) errors.push("State/Province is required when providing address details");
+    if (!data.addressDetails.postalCode?.trim()) errors.push("Postal Code is required when providing address details");
+    if (!data.addressDetails.country?.trim()) errors.push("Country is required when providing address details");
+
+    // Validate postal code format if provided
+    if (data.addressDetails.postalCode && 
+        !/^\d{4}$/.test(data.addressDetails.postalCode)) {
+      errors.push("Invalid South African postal code");
     }
   }
 
-  // Validate postal code
-  if (!/^\d{4}$/.test(data.addressDetails.postalCode)) {
-    return "Invalid South African postal code"
-  }
-
-  return null
+  return errors;
 }
 
 export function DependentDetails({ 
@@ -253,7 +292,8 @@ export function DependentDetails({
   const [editingDependent, setEditingDependent] = useState<DependentData | null>(null)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [formData, setFormData] = useState<DependentData>(emptyDependent)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<React.ReactNode | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [deletingIndex, setDeletingIndex] = useState<number | null>(null)
@@ -337,17 +377,71 @@ export function DependentDetails({
         return
       }
 
-      // Validate required fields
-      if (!formData.personalInfo.firstName || !formData.personalInfo.lastName || !formData.personalInfo.idNumber) {
-        setError('Please fill in all required fields (First Name, Last Name, and ID Number)')
-        setIsSaving(false)
-        return
+      // Auto-fill date of birth from ID number
+      if (formData.personalInfo.idType === "South African ID" && formData.personalInfo.idNumber) {
+        const idNumber = formData.personalInfo.idNumber.trim();
+        if (idNumber.match(/^\d{6}/)) {
+          const yearPrefix = parseInt(idNumber.substring(0, 2)) > 22 ? "19" : "20";
+          const year = yearPrefix + idNumber.substring(0, 2);
+          const month = idNumber.substring(2, 4);
+          const day = idNumber.substring(4, 6);
+          
+          const dateOfBirth = new Date(`${year}-${month}-${day}`);
+          if (!isNaN(dateOfBirth.getTime())) {
+            formData.personalInfo.dateOfBirth = dateOfBirth;
+          }
+        }
       }
 
-      // Additional validation
-      const validationError = validateDependentData(formData);
-      if (validationError) {
-        setError(validationError);
+      // Validate all required fields and data
+      const validationErrors = validateDependentData(formData)
+      if (validationErrors.length > 0) {
+        const fieldErrors: { [key: string]: string } = {};
+
+        validationErrors.forEach(error => {
+          // Personal Information
+          if (error.includes("First Name")) fieldErrors.firstName = error;
+          if (error.includes("Last Name")) fieldErrors.lastName = error;
+          if (error.includes("Initials")) fieldErrors.initials = error;
+          if (error.includes("Date of Birth")) fieldErrors.dateOfBirth = error;
+          if (error.includes("Gender")) fieldErrors.gender = error;
+          if (error.includes("Relationship")) fieldErrors.relationshipToMainMember = error;
+          if (error.includes("Nationality")) fieldErrors.nationality = error;
+          if (error.includes("Type of ID")) fieldErrors.idType = error;
+          if (error.includes("ID Number") || error.includes("South African ID number")) fieldErrors.idNumber = error;
+          if (error.includes("Dependent Status")) fieldErrors.dependentStatus = error;
+          if (error.includes("Child dependents")) fieldErrors.relationshipToMainMember = error;
+
+          // Contact Details
+          if (error.includes("contact")) {
+            const contactIndex = error.match(/contact #(\d+)/)?.[1];
+            if (contactIndex) {
+              const index = parseInt(contactIndex) - 1;
+              if (error.includes("type")) fieldErrors[`contact${index}Type`] = error;
+              if (error.includes("value") || error.includes("email") || error.includes("phone")) {
+                fieldErrors[`contact${index}Value`] = error;
+              }
+            }
+          }
+
+          // Address Details
+          if (error.includes("Street Address")) fieldErrors.streetAddress = error;
+          if (error.includes("City")) fieldErrors.city = error;
+          if (error.includes("State/Province")) fieldErrors.stateProvince = error;
+          if (error.includes("Postal Code") || error.includes("postal code")) fieldErrors.postalCode = error;
+          if (error.includes("Country")) fieldErrors.country = error;
+        });
+
+        // Pass the field errors to the form
+        setError(
+          <DependentForm
+            data={formData}
+            updateData={setFormData}
+            validationErrors={fieldErrors}
+            mainMemberIdNumber={mainMemberIdNumber}
+          />
+        );
+        setIsSaving(false);
         return;
       }
 
@@ -391,10 +485,55 @@ export function DependentDetails({
       setError(null)
 
       // Validate required fields
-      if (!formData.personalInfo.firstName || !formData.personalInfo.lastName || !formData.personalInfo.idNumber) {
-        setError('Please fill in all required fields (First Name, Last Name, and ID Number)')
-        setIsSaving(false)
-        return
+      const validationErrors = validateDependentData(formData);
+      if (validationErrors.length > 0) {
+        const fieldErrors: { [key: string]: string } = {};
+
+        validationErrors.forEach(error => {
+          // Personal Information
+          if (error.includes("First Name")) fieldErrors.firstName = error;
+          if (error.includes("Last Name")) fieldErrors.lastName = error;
+          if (error.includes("Initials")) fieldErrors.initials = error;
+          if (error.includes("Date of Birth")) fieldErrors.dateOfBirth = error;
+          if (error.includes("Gender")) fieldErrors.gender = error;
+          if (error.includes("Relationship")) fieldErrors.relationshipToMainMember = error;
+          if (error.includes("Nationality")) fieldErrors.nationality = error;
+          if (error.includes("Type of ID")) fieldErrors.idType = error;
+          if (error.includes("ID Number") || error.includes("South African ID number")) fieldErrors.idNumber = error;
+          if (error.includes("Dependent Status")) fieldErrors.dependentStatus = error;
+          if (error.includes("Child dependents")) fieldErrors.relationshipToMainMember = error;
+
+          // Contact Details
+          if (error.includes("contact")) {
+            const contactIndex = error.match(/contact #(\d+)/)?.[1];
+            if (contactIndex) {
+              const index = parseInt(contactIndex) - 1;
+              if (error.includes("type")) fieldErrors[`contact${index}Type`] = error;
+              if (error.includes("value") || error.includes("email") || error.includes("phone")) {
+                fieldErrors[`contact${index}Value`] = error;
+              }
+            }
+          }
+
+          // Address Details
+          if (error.includes("Street Address")) fieldErrors.streetAddress = error;
+          if (error.includes("City")) fieldErrors.city = error;
+          if (error.includes("State/Province")) fieldErrors.stateProvince = error;
+          if (error.includes("Postal Code") || error.includes("postal code")) fieldErrors.postalCode = error;
+          if (error.includes("Country")) fieldErrors.country = error;
+        });
+
+        // Pass the field errors to the form
+        setError(
+          <DependentForm
+            data={formData}
+            updateData={setFormData}
+            validationErrors={fieldErrors}
+            mainMemberIdNumber={mainMemberIdNumber}
+          />
+        );
+        setIsSaving(false);
+        return;
       }
 
       if (editingIndex !== null) {
@@ -407,7 +546,7 @@ export function DependentDetails({
           ...formData,
           id: dependentId
         }
-    updateDependents(updatedDependents)
+        updateDependents(updatedDependents)
         
         // Reset form and close dialog
         setIsDialogOpen(false)
@@ -451,7 +590,7 @@ export function DependentDetails({
           
           // Update local state to remove the dependent
           updateDependents(dependents.filter((_, i) => i !== index))
-          setError(null)
+          setDeleteError(null)
           setIsDeleteDialogOpen(false)
           setDeletingIndex(null)
         }
@@ -463,7 +602,7 @@ export function DependentDetails({
           updatedDependents[index] = { ...updatedDependents[index], isDeleting: false }
     updateDependents(updatedDependents)
         }
-        setError(error instanceof Error ? error.message : 'Failed to remove dependent. Please try again.')
+        setDeleteError(error instanceof Error ? error.message : 'Failed to remove dependent. Please try again.')
       } finally {
         setIsSaving(false)
       }
@@ -542,16 +681,8 @@ export function DependentDetails({
                   </DialogTrigger>
                   <DialogContent 
                     className="max-w-4xl max-h-[90vh] overflow-y-auto"
-                    onPointerDownOutside={(e) => {
-                      if (isSaving) {
-                        e.preventDefault()
-                      }
-                    }}
-                    onEscapeKeyDown={(e) => {
-                      if (isSaving) {
-                        e.preventDefault()
-                      }
-                    }}
+                    onPointerDownOutside={(e) => e.preventDefault()}
+                    onEscapeKeyDown={(e) => e.preventDefault()}
                   >
                     <DialogHeader>
                       <DialogTitle>
@@ -560,46 +691,45 @@ export function DependentDetails({
                       </DialogTitle>
                     </DialogHeader>
                     {error && (
-                      <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-600 rounded-md">
-                        <p className="font-medium mb-1">Error</p>
-                        <p className="text-sm">{error}</p>
-                        {error.includes('Maximum number') && (
-                          <p className="text-sm mt-2">
-                            Please upgrade your policies to add more dependents or remove existing ones.
-                            Current policies limit: {policiesLimit} dependents.
-                          </p>
-                        )}
-                        {error.includes('Contract information') && (
-                          <p className="text-sm mt-2">Please complete the main member details before adding dependents.</p>
-                        )}
-                        {error.includes('required fields') && (
-                          <p className="text-sm mt-2">All marked fields must be completed to proceed.</p>
-                        )}
-                        {error.includes('policies not found') && (
-                          <p className="text-sm mt-2">Please select a valid policies for this contract first.</p>
-                        )}
-                      </div>
+                      <Alert variant="destructive" className="mb-4">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertTitle>Validation Error</AlertTitle>
+                        <AlertDescription>
+                          {error}
+                        </AlertDescription>
+                      </Alert>
                     )}
                     <DependentForm
                       data={editingDependent || formData}
                       updateData={(data) => {
-                        setFormData(data)
-                        setError(null) // Clear error when form data changes
+                        // Auto-fill date of birth when ID number changes
+                        if (data.personalInfo.idType === "South African ID" && 
+                            data.personalInfo.idNumber && 
+                            data.personalInfo.idNumber.length >= 6) {
+                          const idNumber = data.personalInfo.idNumber.trim();
+                          if (idNumber.match(/^\d{6}/)) {
+                            const yearPrefix = parseInt(idNumber.substring(0, 2)) > 22 ? "19" : "20";
+                            const year = yearPrefix + idNumber.substring(0, 2);
+                            const month = idNumber.substring(2, 4);
+                            const day = idNumber.substring(4, 6);
+                            
+                            const dateOfBirth = new Date(`${year}-${month}-${day}`);
+                            if (!isNaN(dateOfBirth.getTime())) {
+                              data.personalInfo.dateOfBirth = dateOfBirth;
+                            }
+                          }
+                        }
+                        setFormData(data);
+                        setError(null);
                       }}
-                      error={error}
+                      error={typeof error === 'string' ? error : null}
+                      mainMemberIdNumber={mainMemberIdNumber}
+                      validationErrors={typeof error !== 'string' && React.isValidElement(error) ? error.props.validationErrors : {}}
                     />
                     <div className="flex justify-end space-x-2 mt-4">
                       <Button 
                         variant="outline" 
-                        onClick={() => {
-                          if (!isSaving) {
-                            setIsDialogOpen(false)
-                            setEditingDependent(null)
-                            setEditingIndex(null)
-                            setFormData(emptyDependent)
-                            setError(null)
-                          }
-                        }}
+                        onClick={handleCancel}
                         disabled={isSaving}
                       >
                         Cancel
@@ -759,7 +889,7 @@ export function DependentDetails({
             setIsDeleteDialogOpen(open)
             if (!open) {
               setDeletingIndex(null)
-              setError(null)
+              setDeleteError(null)
             }
           }
         }}
@@ -767,16 +897,18 @@ export function DependentDetails({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {error ? "Error Removing Dependent" : "Confirm Deletion"}
+              {deleteError ? "Error Removing Dependent" : "Confirm Deletion"}
             </DialogTitle>
           </DialogHeader>
           <div className="py-4">
-            {error ? (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-600 rounded-md">
-                <p className="font-medium mb-1">Error</p>
-                <p className="text-sm">{error}</p>
-                <p className="text-sm mt-2">Please try again or contact support if the problem persists.</p>
-              </div>
+            {deleteError ? (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Error</AlertTitle>
+                <AlertDescription>
+                  {deleteError}
+                </AlertDescription>
+              </Alert>
             ) : (
               <>
                 <p className="text-gray-600">Are you sure you want to remove this dependent? This action cannot be undone.</p>
@@ -815,14 +947,14 @@ export function DependentDetails({
                 if (!isSaving) {
                   setIsDeleteDialogOpen(false)
                   setDeletingIndex(null)
-                  setError(null)
+                  setDeleteError(null)
                 }
               }}
               disabled={isSaving}
             >
-              {error ? 'Close' : 'Cancel'}
+              {deleteError ? 'Close' : 'Cancel'}
             </Button>
-            {!error && (
+            {!deleteError && (
               <Button
                 variant="destructive"
                 onClick={() => deletingIndex !== null && handleRemoveDependent(deletingIndex)}

@@ -69,6 +69,7 @@ export function Sidebar({ setCurrentPage, userRole }: SidebarProps) {
         <div className="space-y-1">
           <Button 
             variant="ghost" 
+            id="General"
             className="w-full justify-between py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 hover:text-white"
             onClick={() => setIsGeneralOpen(!isGeneralOpen)}
           >
@@ -84,6 +85,7 @@ export function Sidebar({ setCurrentPage, userRole }: SidebarProps) {
               <a
                 key={item.name}
                 href="#"
+                id={item.name}
                 className="block py-2 px-4 rounded transition duration-200 hover:bg-gray-700 hover:text-white text-sm"
                 onClick={() => setCurrentPage(item.page)}
               >
@@ -98,6 +100,7 @@ export function Sidebar({ setCurrentPage, userRole }: SidebarProps) {
         <div className="space-y-1">
           <Button 
             variant="ghost" 
+            id="Claims"
             className="w-full justify-between py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 hover:text-white"
             onClick={() => setIsClaimsOpen(!isClaimsOpen)}
           >
@@ -113,6 +116,7 @@ export function Sidebar({ setCurrentPage, userRole }: SidebarProps) {
               <a
                 key={item.name}
                 href="#"
+                id={item.name}
                 className="block py-2 px-4 rounded transition duration-200 hover:bg-gray-700 hover:text-white text-sm"
                 onClick={() => setCurrentPage(item.page)}
               >
@@ -128,6 +132,7 @@ export function Sidebar({ setCurrentPage, userRole }: SidebarProps) {
           <div className="space-y-1">
             <Button 
               variant="ghost" 
+              id="Maintenance"
               className="w-full justify-between py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 hover:text-white"
               onClick={() => setIsMaintenanceOpen(!isMaintenanceOpen)}
             >
@@ -143,6 +148,7 @@ export function Sidebar({ setCurrentPage, userRole }: SidebarProps) {
                 <a
                   key={item.name}
                   href="#"
+                  id={item.name}
                   className="block py-2 px-4 rounded transition duration-200 hover:bg-gray-700 hover:text-white text-sm"
                   onClick={() => setCurrentPage(item.page)}
                 >
@@ -158,6 +164,7 @@ export function Sidebar({ setCurrentPage, userRole }: SidebarProps) {
         <div className="space-y-1">
           <Button 
             variant="ghost" 
+            id="Contract"
             className="w-full justify-between py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 hover:text-white"
             onClick={() => setIsContractOpen(!isContractOpen)}
           >
@@ -173,6 +180,7 @@ export function Sidebar({ setCurrentPage, userRole }: SidebarProps) {
               <a
                 key={item.name}
                 href="#"
+                id={item.name}
                 className="block py-2 px-4 rounded transition duration-200 hover:bg-gray-700 hover:text-white text-sm"
                 onClick={() => setCurrentPage(item.page)}
               >
@@ -188,6 +196,7 @@ export function Sidebar({ setCurrentPage, userRole }: SidebarProps) {
           <div className="space-y-1">
             <Button 
               variant="ghost" 
+              id="Utility"
               className="w-full justify-between py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 hover:text-white"
               onClick={() => setIsUtilityOpen(!isUtilityOpen)}
             >
@@ -203,6 +212,7 @@ export function Sidebar({ setCurrentPage, userRole }: SidebarProps) {
                 <a
                   key={item.name}
                   href="#"
+                  id={item.name}
                   className="block py-2 px-4 rounded transition duration-200 hover:bg-gray-700 hover:text-white text-sm"
                   onClick={() => setCurrentPage(item.page)}
                 >

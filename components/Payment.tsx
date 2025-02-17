@@ -396,29 +396,11 @@ export function Payment() {
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button 
-                onClick={() => {
-                  setEditingPayment(null)
-                  setFormData({
-                    contractNumber: "",
-                    amount: "",
-                    paymentMethod: "",
-                    reference: "",
-                    receiptUrl: ""
-                  })
-                }}
-                disabled={isLoading}
+                id="Add Payment"
+                onClick={() => setShowAddPaymentDialog(true)}
               >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Loading...
-                  </>
-                ) : (
-                  <>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Payment
-                  </>
-                )}
+                <Plus className="h-4 w-4 mr-2" />
+                Add Payment
               </Button>
             </DialogTrigger>
             <DialogContent>

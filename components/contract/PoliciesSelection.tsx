@@ -115,10 +115,10 @@ export function PoliciesSelection({
     fetchFeatures()
   }, [])
 
-  const handlepolicieselect = async (policiesId: string) => {
+  const handlepolicieselect = async (policyName: string) => {
     try {
-      setLoadingpolicies(policiesId)
-      const selected = availablepolicies.find((policies) => policies.id === policiesId)
+      setLoadingpolicies(policyName)
+      const selected = availablepolicies.find((policy) => policy.name === policyName)
       if (selected) {
         onpolicieselect({
           policiesId: selected.id,
@@ -128,8 +128,8 @@ export function PoliciesSelection({
         })
       }
     } catch (err) {
-      console.error('Error selecting policies:', err)
-      setError('Failed to select policies. Please try again.')
+      console.error('Error selecting policy:', err)
+      setError('Failed to select policy. Please try again.')
     } finally {
       setLoadingpolicies(null)
     }
@@ -195,7 +195,7 @@ export function PoliciesSelection({
       </div>
 
       <RadioGroup
-        value={selectedpolicies.policiesId}
+        value={selectedpolicies.name}
         onValueChange={handlepolicieselect}
       >
         <div className="grid gap-4 md:grid-cols-3">
@@ -204,23 +204,24 @@ export function PoliciesSelection({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Card className={`relative cursor-pointer transition-all duration-200 hover:shadow-md ${
-                    selectedpolicies.policiesId === policies.id 
+                    selectedpolicies.name === policies.name 
                       ? 'border-primary ring-1 ring-primary ring-opacity-50 shadow-md transform scale-[1.01]' 
                       : 'hover:border-primary/50'
-                  } ${loadingpolicies === policies.id ? 'opacity-70' : ''}`}>
+                  } ${loadingpolicies === policies.name ? 'opacity-70' : ''}`}>
                     <CardHeader className="space-y-3 p-4">
                       <div className="flex items-start space-x-3">
                         <RadioGroupItem 
-                          value={policies.id} 
-                          id={policies.id} 
+                          value={policies.name}
+                          id={policies.name}
+                          data-value={policies.name}
                           disabled={loadingpolicies !== null}
                           className="h-4 w-4 mt-1" 
                         />
                         <div className="space-y-0.5">
                           <CardTitle>
-                            <Label htmlFor={policies.id} className="cursor-pointer text-base font-semibold">
+                            <Label htmlFor={policies.name} className="cursor-pointer text-base font-semibold">
                               {policies.name}
-                              {loadingpolicies === policies.id && (
+                              {loadingpolicies === policies.name && (
                                 <Loader2 className="w-3 h-3 ml-2 inline animate-spin" />
                               )}
                             </Label>
@@ -295,7 +296,7 @@ export function PoliciesSelection({
         </div>
       </RadioGroup>
 
-      {selectedpolicies.policiesId && (
+      {selectedpolicies.name && (
         <Alert className="mt-4 border-primary/20 bg-primary/5">
           <div className="flex items-center gap-2">
             <svg className="h-4 w-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -308,31 +309,31 @@ export function PoliciesSelection({
           <AlertDescription className="mt-2 flex flex-col gap-1 text-sm">
             <div className="flex items-baseline gap-2">
               <span className="font-medium">Selected Policy:</span>
-              <span className="font-semibold">{selectedpolicies.name}</span>
+              <span className="font-semibold" id='Selected Policy'>{selectedpolicies.name}</span>
             </div>
             <div className="flex items-baseline gap-2">
               <span className="font-medium">Policy Premium:</span>
-              <span className="font-semibold">R{selectedpolicies.premium?.toLocaleString()}</span>
+              <span className="font-semibold" id='Policy Premium'>R{selectedpolicies.premium?.toLocaleString()}</span>
             </div>
             {selectedCateringOptions.length > 0 && (
               <div className="flex items-baseline gap-2">
                 <span className="font-medium">Catering Options Total:</span>
-                <span className="font-semibold">
+                <span className="font-semibold" id='Catering Options Total'>
                   R{selectedCateringOptions.reduce((sum, option) => sum + option.price, 0).toLocaleString()}
                 </span>
               </div>
             )}
             <div className="flex items-baseline gap-2 pt-2 border-t mt-2">
               <span className="font-medium">Total Monthly Premium:</span>
-              <span className="text-base font-bold text-primary">
+              <span className="text-base font-bold text-primary" id='Total Monthly Premium'>
                 R{calculateTotalPremium().toLocaleString()}
               </span>
             </div>
             <div className="flex items-baseline gap-2">
               <span className="font-medium">Cover Amount:</span>
-              <span className="text-base font-bold">R{selectedpolicies.coverAmount}</span>
+              <span className="text-base font-bold" id='Cover Amount'>R{selectedpolicies.coverAmount}</span>
             </div>
-            {availablepolicies.find(p => p.id === selectedpolicies.policiesId)?.maxDependents && (
+            {availablepolicies.find(p => p.name === selectedpolicies.name)?.maxDependents && (
               <div className="text-xs text-muted-foreground mt-1">
                 <span className="inline-flex items-center">
                   <svg className="h-3 w-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -340,7 +341,7 @@ export function PoliciesSelection({
                       d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" 
                     />
                   </svg>
-                  Includes coverage for up to {availablepolicies.find(p => p.id === selectedpolicies.policiesId)?.maxDependents} dependents
+                  Includes coverage for up to {availablepolicies.find(p => p.name === selectedpolicies.name)?.maxDependents} dependents
                 </span>
               </div>
             )}

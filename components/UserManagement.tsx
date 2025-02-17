@@ -197,7 +197,7 @@ export function UserManagement() {
         <CardHeader>
           <div className="flex justify-between items-center">
             <CardTitle>User Management</CardTitle>
-            <Button onClick={openAddDialog}>
+            <Button id="Add User" onClick={openAddDialog}>
               <Plus className="mr-2 h-4 w-4" />
               Add User
             </Button>
@@ -217,17 +217,17 @@ export function UserManagement() {
               value={searchParams.role}
               onValueChange={(value) => setSearchParams(prev => ({ ...prev, role: value }))}
             >
-              <SelectTrigger className="w-[200px]">
+              <SelectTrigger id="role" className="w-[200px]">
                 <SelectValue placeholder="Select role" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Roles</SelectItem>
+                <SelectItem id="All Roles" data-value="All Roles" value="all">All Roles</SelectItem>
                 {USER_ROLES.map(role => (
-                  <SelectItem key={role} value={role}>{role}</SelectItem>
+                  <SelectItem key={role} id={role} data-value={role} value={role}>{role}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <Button onClick={handleSearch}>
+            <Button id="Search" onClick={handleSearch}>
               <Search className="mr-2 h-4 w-4" />
               Search
             </Button>
@@ -273,6 +273,7 @@ export function UserManagement() {
                     <TableCell>{user.lastLogin?.toLocaleDateString() || 'Never'}</TableCell>
                     <TableCell className="text-right space-x-2">
                       <Button
+                        id="Edit"
                         variant="ghost"
                         size="icon"
                         onClick={() => openEditDialog(user)}
@@ -280,6 +281,7 @@ export function UserManagement() {
                         <Pencil className="h-4 w-4" />
                       </Button>
                       <Button
+                        id="Delete"
                         variant="ghost"
                         size="icon"
                         className="text-red-600 hover:text-red-700 hover:bg-red-100"
@@ -328,25 +330,26 @@ export function UserManagement() {
                 value={formData.role}
                 onValueChange={(value) => setFormData(prev => ({ ...prev, role: value }))}
               >
-                <SelectTrigger>
+                <SelectTrigger id="role">
                   <SelectValue placeholder="Select role" />
                 </SelectTrigger>
                 <SelectContent>
                   {USER_ROLES.map(role => (
-                    <SelectItem key={role} value={role}>{role}</SelectItem>
+                    <SelectItem key={role} id={role} data-value={role} value={role}>{role}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="flex justify-end gap-2">
               <Button
+                id="Cancel"
                 type="button"
                 variant="outline"
                 onClick={() => setIsDialogOpen(false)}
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={loading}>
+              <Button id="Save" type="submit" disabled={loading}>
                 {loading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />

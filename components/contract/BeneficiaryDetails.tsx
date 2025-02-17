@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, ReactNode } from "react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
@@ -10,11 +10,15 @@ import { DatePicker } from "@/components/ui/date-picker"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { AlertCircle, UserPlus, UserX, UserCheck, AlertTriangle, Percent } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 import { BeneficiaryForm } from "./BeneficiaryForm"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { addDoc, collection, deleteDoc, getDocs, query, where } from "firebase/firestore"
 import { db } from "@/src/FirebaseConfg"
+
+type ValidationErrors = { [key: string]: string } | null;
+type MessageError = ReactNode | null;
 
 export type BeneficiaryData = {
   id?: string
@@ -208,96 +212,126 @@ const validateBeneficiaryPercentage = async (
   }
 }
 
-const validateBeneficiaryData = (data: BeneficiaryData, existingBeneficiaries: BeneficiaryData[]): string | null => {
-  // First validate required fields with proper type checking and validation
-  const requiredFields = [
-    { 
-      field: 'firstName', 
-      label: 'First Name',
-      validate: (value: any) => typeof value === 'string' && value.trim().length > 0
-    },
-    { 
-      field: 'lastName', 
-      label: 'Last Name',
-      validate: (value: any) => typeof value === 'string' && value.trim().length > 0
-    },
-    { 
-      field: 'idNumber', 
-      label: 'ID Number',
-      validate: (value: any) => typeof value === 'string' && value.trim().length > 0
-    },
-    { 
-      field: 'relationshipToMainMember', 
-      label: 'Relationship to Main Member',
-      validate: (value: any) => typeof value === 'string' && value.trim().length > 0
-    },
-    { 
-      field: 'beneficiaryPercentage', 
-      label: 'Benefit Percentage',
-      validate: (value: any) => typeof value === 'number' && value > 0 && value <= 100
-    }
-  ]
+const validateBeneficiaryData = (data: BeneficiaryData, existingBeneficiaries: BeneficiaryData[]): string[] => {
+  const errors: string[] = [];
 
-  const missingFields = requiredFields
-    .filter(({ field, validate }) => {
-      const value = data.personalInfo[field as keyof typeof data.personalInfo]
-      return !validate(value)
-    })
-    .map(({ label }) => label)
-
-  if (missingFields.length > 0) {
-    return `Please3 complete the following required fields: ${missingFields.join(', ')}`
+  // Personal Information Validation
+  if (!data.personalInfo.title?.trim()) errors.push("Title is required");
+  
+  // First Name validation
+  if (!data.personalInfo.firstName?.trim()) {
+    errors.push("First Name: Please enter your first name");
+  } else if (data.personalInfo.firstName.length < 2) {
+    errors.push("First Name: Must be at least 2 characters long");
   }
 
-  // Validate ID Number format for South African IDs
-  if (data.personalInfo.idType === "South African ID" && 
-      !/^\d{13}$/.test(data.personalInfo.idNumber)) {
-    return "South African ID number must be 13 digits"
+  // Last Name validation
+  if (!data.personalInfo.lastName?.trim()) {
+    errors.push("Last Name: Please enter your last name");
+  } else if (data.personalInfo.lastName.length < 2) {
+    errors.push("Last Name: Must be at least 2 characters long");
+  }
+
+  // Initials validation
+  if (!data.personalInfo.initials?.trim()) {
+    errors.push("Initials: Please enter your initials");
+  } else if (!/^[A-Z]+$/.test(data.personalInfo.initials.trim())) {
+    errors.push("Initials: Must contain only capital letters");
+  }
+
+  // Date of Birth validation
+  if (!data.personalInfo.dateOfBirth) {
+    errors.push("Date of Birth: Please select your date of birth");
+  } else {
+    const today = new Date();
+    const birthDate = new Date(data.personalInfo.dateOfBirth);
+    if (birthDate > today) {
+      errors.push("Date of Birth: Cannot be a future date");
+    }
+  }
+
+  if (!data.personalInfo.gender?.trim()) errors.push("Gender is required");
+  if (!data.personalInfo.relationshipToMainMember?.trim()) errors.push("Relationship to Main Member is required");
+  if (!data.personalInfo.nationality?.trim()) errors.push("Nationality is required");
+  
+  // ID Type and Number validation
+  if (!data.personalInfo.idType?.trim()) {
+    errors.push("Type of ID is required");
+  }
+  if (!data.personalInfo.idNumber?.trim()) {
+    errors.push("ID Number / Passport Number: Please enter your ID number");
+  } else if (data.personalInfo.idType === "South African ID") {
+    if (!/^\d{13}$/.test(data.personalInfo.idNumber.trim())) {
+      errors.push("ID Number: Must be exactly 13 digits for South African ID");
+    }
+  } else if (data.personalInfo.idType === "Passport") {
+    if (data.personalInfo.idNumber.length < 6) {
+      errors.push("Passport Number: Must be at least 6 characters long");
+    }
   }
 
   // Check for duplicate ID numbers
   if (existingBeneficiaries.some(b => 
     b.personalInfo.idNumber === data.personalInfo.idNumber)) {
-    return "A beneficiary with this ID number already exists"
+    errors.push("ID Number / Passport Number: A beneficiary with this ID number already exists");
   }
 
   // Validate beneficiary percentage
   if (data.personalInfo.beneficiaryPercentage < 1 || 
       data.personalInfo.beneficiaryPercentage > 100) {
-    return "Beneficiary percentage must be between 1 and 100"
+    errors.push("Beneficiary percentage must be between 1 and 100");
   }
 
   // Calculate total percentage including new beneficiary
   const totalPercentage = existingBeneficiaries.reduce(
     (sum, ben) => sum + ben.personalInfo.beneficiaryPercentage,
     0
-  ) + data.personalInfo.beneficiaryPercentage
+  ) + data.personalInfo.beneficiaryPercentage;
 
   if (totalPercentage > 100) {
-    return `Total beneficiary percentage cannot exceed 100%. Current total: ${totalPercentage}%`
+    errors.push(`Total beneficiary percentage cannot exceed 100%. Current total: ${totalPercentage}%`);
   }
 
-  // Validate contact details if any are provided
-  if (data.contactDetails.length > 0) {
-    for (const contact of data.contactDetails) {
-      if (contact.type === "Email" && 
-          !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.value)) {
-        return "Invalid email format"
+  // Contact Details Validation
+  if (!data.contactDetails || data.contactDetails.length === 0) {
+    errors.push("At least one contact method is required");
+  } else {
+    data.contactDetails.forEach((contact, index) => {
+      if (!contact.type) errors.push(`Contact type is required for contact #${index + 1}`);
+      if (!contact.value?.trim()) errors.push(`Contact value is required for contact #${index + 1}`);
+      
+      // Email validation
+      if (contact.type === "Email" && contact.value) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(contact.value.trim())) {
+          errors.push(`Invalid email format for contact #${index + 1}`);
+        }
       }
-      if (contact.type === "Phone Number" && 
-          !/^(\+27|0)\d{9}$/.test(contact.value)) {
-        return "Invalid South African phone number format"
+      
+      // Phone number validation
+      if (contact.type === "Phone Number" && contact.value) {
+        const phoneRegex = /^[0-9+\-\s()]{10,}$/;
+        if (!phoneRegex.test(contact.value.trim())) {
+          errors.push(`Invalid phone number format for contact #${index + 1}`);
+        }
       }
-    }
+    });
   }
+
+  // Address Details Validation
+  if (!data.addressDetails.streetAddress?.trim()) errors.push("Street Address is required");
+  if (!data.addressDetails.city?.trim()) errors.push("City is required");
+  if (!data.addressDetails.stateProvince?.trim()) errors.push("State/Province is required");
+  if (!data.addressDetails.postalCode?.trim()) errors.push("Postal Code is required");
+  if (!data.addressDetails.country?.trim()) errors.push("Country is required");
 
   // Validate postal code if provided
   if (data.addressDetails.postalCode && 
       !/^\d{4}$/.test(data.addressDetails.postalCode)) {
-    return "Invalid South African postal code"
+    errors.push("Invalid South African postal code");
   }
 
-  return null
+  return errors;
 }
 
 export function BeneficiaryDetails({ 
@@ -312,7 +346,8 @@ export function BeneficiaryDetails({
   const [editingBeneficiary, setEditingBeneficiary] = useState<BeneficiaryData | null>(null)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
   const [formData, setFormData] = useState<BeneficiaryData>(emptyBeneficiary)
-  const [error, setError] = useState<string | null>(null)
+  const [validationErrors, setValidationErrors] = useState<ValidationErrors>(null)
+  const [messageError, setMessageError] = useState<MessageError>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [duplicateCheck, setDuplicateCheck] = useState<{
     checking: boolean;
@@ -327,25 +362,67 @@ export function BeneficiaryDetails({
   const handleAddBeneficiary = async () => {
     try {
       if (!contractNumber || !mainMemberIdNumber) {
-        setError('Contract information is missing. Please add main member details first.')
+        setMessageError('Contract information is missing. Please add main member details first.')
         return
       }
 
       setIsSaving(true)
-      setError(null)
+      setValidationErrors(null)
+      setMessageError(null)
 
       // Validate all required fields and data
-      const validationError = validateBeneficiaryData(formData, beneficiaries)
-      if (validationError) {
-        setError(validationError)
-        setIsSaving(false)
-        return
+      const validationErrors = validateBeneficiaryData(formData, beneficiaries)
+      if (validationErrors.length > 0) {
+        const errorMap = validationErrors.reduce((acc: { [key: string]: string }, error) => {
+          // Extract field name from error message (everything before the colon)
+          const [field, ...messageParts] = error.split(":");
+          const message = messageParts.join(":").trim();
+
+          if (field.includes("First Name")) acc.firstName = message || field;
+          else if (field.includes("Last Name")) acc.lastName = message || field;
+          else if (field.includes("Initials")) acc.initials = message || field;
+          else if (field.includes("Date of Birth")) acc.dateOfBirth = message || field;
+          else if (field.includes("ID Number") || field.includes("Passport Number")) acc.idNumber = message || field;
+          else if (field.includes("Title")) acc.title = message || field;
+          else if (field.includes("Gender")) acc.gender = message || field;
+          else if (field.includes("Relationship")) acc.relationshipToMainMember = message || field;
+          else if (field.includes("Nationality")) acc.nationality = message || field;
+          else if (field.includes("Type of ID")) acc.idType = message || field;
+          else if (field.includes("contact")) acc.contacts = message || field;
+          else if (field.includes("Street Address")) acc.streetAddress = message || field;
+          else if (field.includes("City")) acc.city = message || field;
+          else if (field.includes("State/Province")) acc.stateProvince = message || field;
+          else if (field.includes("Postal Code")) acc.postalCode = message || field;
+          else if (field.includes("Country")) acc.country = message || field;
+          else if (field.includes("percentage")) acc.beneficiaryPercentage = message || field;
+          return acc;
+        }, {});
+
+        setValidationErrors(errorMap);
+        setMessageError(
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Please correct the following errors:</AlertTitle>
+            <AlertDescription>
+              <div className="grid grid-cols-2 gap-4 mt-2">
+                {Object.entries(errorMap).map(([field, error], index) => (
+                  <div key={index} className="space-y-1">
+                    <h4 className="font-medium capitalize">{field.replace(/([A-Z])/g, ' $1').trim()}</h4>
+                    <p className="text-sm">{error}</p>
+                  </div>
+                ))}
+              </div>
+            </AlertDescription>
+          </Alert>
+        );
+        setIsSaving(false);
+        return;
       }
 
       // Check for duplicates
       const isDuplicate = await checkDuplicateBeneficiary(formData.personalInfo.idNumber)
       if (isDuplicate) {
-        setError('This person is already registered as a beneficiary')
+        setMessageError('This person is already registered as a beneficiary')
         setIsSaving(false)
         return
       }
@@ -363,10 +440,10 @@ export function BeneficiaryDetails({
       // Reset form and close dialog
       setIsDialogOpen(false)
       setFormData(emptyBeneficiary)
-      setError(null)
+      setValidationErrors(null)
     } catch (error) {
       console.error('Error adding beneficiary:', error)
-      setError('Failed to add beneficiary. Please try again.')
+      setMessageError('Failed to add beneficiary. Please try again.')
     } finally {
       setIsSaving(false)
     }
@@ -375,12 +452,13 @@ export function BeneficiaryDetails({
   const handleEditBeneficiary = async () => {
     try {
       if (!contractNumber || !mainMemberIdNumber) {
-        setError('Contract information is missing')
+        setMessageError('Contract information is missing')
         return
       }
 
       setIsSaving(true)
-      setError(null)
+      setValidationErrors(null)
+      setMessageError(null)
 
       if (editingIndex !== null) {
         // Calculate total percentage excluding the current beneficiary
@@ -388,10 +466,51 @@ export function BeneficiaryDetails({
         
         // Validate all required fields and data
         const validationError = validateBeneficiaryData(formData, otherBeneficiaries)
-        if (validationError) {
-          setError(validationError)
-          setIsSaving(false)
-          return
+        if (validationError.length > 0) {
+          const errorMap = validationError.reduce((acc: { [key: string]: string }, error) => {
+            // Extract field name from error message (everything before the colon)
+            const [field, ...messageParts] = error.split(":");
+            const message = messageParts.join(":").trim();
+
+            if (field.includes("First Name")) acc.firstName = message || field;
+            else if (field.includes("Last Name")) acc.lastName = message || field;
+            else if (field.includes("Initials")) acc.initials = message || field;
+            else if (field.includes("Date of Birth")) acc.dateOfBirth = message || field;
+            else if (field.includes("ID Number") || field.includes("Passport Number")) acc.idNumber = message || field;
+            else if (field.includes("Title")) acc.title = message || field;
+            else if (field.includes("Gender")) acc.gender = message || field;
+            else if (field.includes("Relationship")) acc.relationshipToMainMember = message || field;
+            else if (field.includes("Nationality")) acc.nationality = message || field;
+            else if (field.includes("Type of ID")) acc.idType = message || field;
+            else if (field.includes("contact")) acc.contacts = message || field;
+            else if (field.includes("Street Address")) acc.streetAddress = message || field;
+            else if (field.includes("City")) acc.city = message || field;
+            else if (field.includes("State/Province")) acc.stateProvince = message || field;
+            else if (field.includes("Postal Code")) acc.postalCode = message || field;
+            else if (field.includes("Country")) acc.country = message || field;
+            else if (field.includes("percentage")) acc.beneficiaryPercentage = message || field;
+            return acc;
+          }, {});
+
+          setValidationErrors(errorMap);
+          setMessageError(
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Please correct the following errors:</AlertTitle>
+              <AlertDescription>
+                <div className="grid grid-cols-2 gap-4 mt-2">
+                  {Object.entries(errorMap).map(([field, error], index) => (
+                    <div key={index} className="space-y-1">
+                      <h4 className="font-medium capitalize">{field.replace(/([A-Z])/g, ' $1').trim()}</h4>
+                      <p className="text-sm">{error}</p>
+                    </div>
+                  ))}
+                </div>
+              </AlertDescription>
+            </Alert>
+          );
+          setIsSaving(false);
+          return;
         }
 
         // Update beneficiary in Firestore
@@ -410,11 +529,11 @@ export function BeneficiaryDetails({
         setEditingBeneficiary(null)
         setEditingIndex(null)
         setFormData(emptyBeneficiary)
-        setError(null)
+        setValidationErrors(null)
       }
     } catch (error) {
       console.error('Error updating beneficiary:', error)
-      setError('Failed to update beneficiary. Please try again.')
+      setMessageError('Failed to update beneficiary. Please try again.')
     } finally {
       setIsSaving(false)
     }
@@ -450,12 +569,12 @@ export function BeneficiaryDetails({
         
         // Update local state only after successful Firestore deletion
         updateBeneficiaries(beneficiaries.filter((_, i) => i !== index))
-        setError(null)
+        setValidationErrors(null)
         setIsDeleteDialogOpen(false)
         setDeletingIndex(null)
       } catch (error) {
         console.error('Error removing beneficiary:', error)
-        setError(error instanceof Error ? error.message : 'Failed to remove beneficiary. Please try again.')
+        setMessageError(error instanceof Error ? error.message : 'Failed to remove beneficiary. Please try again.')
       } finally {
         setIsSaving(false)
       }
@@ -526,25 +645,30 @@ export function BeneficiaryDetails({
                 {editingBeneficiary ? "Edit Beneficiary" : "Add New Beneficiary"}
               </DialogTitle>
             </DialogHeader>
-            {error && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-600 rounded-md">
-                <p className="font-medium mb-1">Error</p>
-                <p className="text-sm">{error}</p>
-              </div>
+            {validationErrors && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Validation Error</AlertTitle>
+                <AlertDescription>
+                  {validationErrors.title || validationErrors.firstName || validationErrors.lastName || validationErrors.initials || validationErrors.dateOfBirth || validationErrors.gender || validationErrors.relationshipToMainMember || validationErrors.nationality || validationErrors.idType || validationErrors.idNumber || validationErrors.contacts || validationErrors.streetAddress || validationErrors.city || validationErrors.stateProvince || validationErrors.postalCode || validationErrors.country}
+                </AlertDescription>
+              </Alert>
             )}
             <BeneficiaryForm
               data={editingBeneficiary || emptyBeneficiary}
               updateData={(data: BeneficiaryData) => {
                 setFormData(data);
-                setError(null); // Clear error when form data changes
+                setValidationErrors(null);
               }}
+              mainMemberIdNumber={mainMemberIdNumber}
+              errors={validationErrors}
             />
             <div className="flex justify-end space-x-2 mt-4">
               <Button 
                 variant="outline" 
                 onClick={() => {
                   handleCancel();
-                  setError(null);
+                  setValidationErrors(null);
                 }}
                 disabled={isSaving}
               >
@@ -674,7 +798,7 @@ export function BeneficiaryDetails({
             setIsDeleteDialogOpen(open)
             if (!open) {
               setDeletingIndex(null)
-              setError(null)
+              setValidationErrors(null)
             }
           }
         }}
@@ -682,14 +806,14 @@ export function BeneficiaryDetails({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {error ? "Error Removing Beneficiary" : "Confirm Deletion"}
+              {messageError ? "Error Removing Beneficiary" : "Confirm Deletion"}
             </DialogTitle>
           </DialogHeader>
           <div className="py-4">
-            {error ? (
+            {messageError ? (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-600 rounded-md">
                 <p className="font-medium mb-1">Error</p>
-                <p className="text-sm">{error}</p>
+                <p className="text-sm">{messageError}</p>
                 <p className="text-sm mt-2">Please try again or contact support if the problem persists.</p>
               </div>
             ) : (
@@ -715,14 +839,14 @@ export function BeneficiaryDetails({
                 if (!isSaving) {
                   setIsDeleteDialogOpen(false)
                   setDeletingIndex(null)
-                  setError(null)
+                  setValidationErrors(null)
                 }
               }}
               disabled={isSaving}
             >
-              {error ? 'Close' : 'Cancel'}
+              {messageError ? 'Close' : 'Cancel'}
             </Button>
-            {!error && (
+            {!messageError && (
               <Button
                 variant="destructive"
                 onClick={() => deletingIndex !== null && handleRemoveBeneficiary(deletingIndex)}

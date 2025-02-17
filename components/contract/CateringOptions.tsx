@@ -172,6 +172,7 @@ export function CateringOptions({ selectedOptions, onChange }: CateringOptionsPr
                     <div className="flex items-center space-x-2">
                       <Checkbox
                         id={option.id}
+                        data-value={option.name}
                         checked={selectedOptions.some(opt => opt.id === option.id)}
                         onCheckedChange={() => handleOptionToggle(option.id)}
                         disabled={!option.available || togglingOption !== null}

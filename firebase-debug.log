@@ -1,0 +1,166 @@
+[debug] [2025-02-13T17:59:36.543Z] ----------------------------------------------------------------------
+[debug] [2025-02-13T17:59:36.546Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\27824\Downloads\insurance-management-system (1)\node_modules\firebase-tools\lib\bin\firebase.js deploy
+[debug] [2025-02-13T17:59:36.546Z] CLI Version:   13.31.0
+[debug] [2025-02-13T17:59:36.546Z] Platform:      win32
+[debug] [2025-02-13T17:59:36.546Z] Node Version:  v22.13.1
+[debug] [2025-02-13T17:59:36.547Z] Time:          Thu Feb 13 2025 19:59:36 GMT+0200 (South Africa Standard Time)
+[debug] [2025-02-13T17:59:36.547Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-02-13T17:59:36.828Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-02-13T17:59:36.828Z] > authorizing via signed-in user (karaboephraim2@gmail.com)
+[debug] [2025-02-13T17:59:36.828Z] [iam] checking project data-b93ed for permissions ["firebase.projects.get","firebasehosting.sites.update"]
+[debug] [2025-02-13T17:59:36.831Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T17:59:36.831Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T17:59:36.832Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/data-b93ed:testIamPermissions [none]
+[debug] [2025-02-13T17:59:36.832Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/data-b93ed:testIamPermissions x-goog-quota-user=projects/data-b93ed
+[debug] [2025-02-13T17:59:36.832Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/data-b93ed:testIamPermissions {"permissions":["firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2025-02-13T17:59:38.612Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/data-b93ed:testIamPermissions 200
+[debug] [2025-02-13T17:59:38.612Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/data-b93ed:testIamPermissions {"permissions":["firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2025-02-13T17:59:38.613Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T17:59:38.613Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T17:59:38.613Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/data-b93ed [none]
+[debug] [2025-02-13T17:59:39.226Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/data-b93ed 200
+[debug] [2025-02-13T17:59:39.226Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/data-b93ed {"projectId":"data-b93ed","projectNumber":"218236841715","displayName":"data","name":"projects/data-b93ed","resources":{"hostingSite":"data-b93ed","realtimeDatabaseInstance":"data-b93ed-default-rtdb","locationId":"us-central"},"state":"ACTIVE","etag":"1_5b1c50b8-07cc-40a1-9e81-6daaf1e2655b"}
+[debug] [2025-02-13T17:59:42.310Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T17:59:42.310Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T17:59:42.310Z] >>> [apiv2][query] GET https://firebasehosting.googleapis.com/v1beta1/projects/data-b93ed/sites pageToken=&pageSize=10
+[debug] [2025-02-13T17:59:45.609Z] <<< [apiv2][status] GET https://firebasehosting.googleapis.com/v1beta1/projects/data-b93ed/sites 200
+[debug] [2025-02-13T17:59:45.609Z] <<< [apiv2][body] GET https://firebasehosting.googleapis.com/v1beta1/projects/data-b93ed/sites {"sites":[{"name":"projects/data-b93ed/sites/data-b93ed","defaultUrl":"https://data-b93ed.web.app","type":"DEFAULT_SITE"}]}
+[debug] [2025-02-13T17:59:45.610Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T17:59:45.610Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T17:59:45.610Z] >>> [apiv2][query] GET https://firebasehosting.googleapis.com/v1beta1/projects/data-b93ed/sites 
+[debug] [2025-02-13T17:59:45.998Z] <<< [apiv2][status] GET https://firebasehosting.googleapis.com/v1beta1/projects/data-b93ed/sites 200
+[debug] [2025-02-13T17:59:45.999Z] <<< [apiv2][body] GET https://firebasehosting.googleapis.com/v1beta1/projects/data-b93ed/sites {"sites":[{"name":"projects/data-b93ed/sites/data-b93ed","defaultUrl":"https://data-b93ed.web.app","type":"DEFAULT_SITE"}]}
+[debug] [2025-02-13T17:59:45.999Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T17:59:46.000Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T17:59:46.001Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/data-b93ed/webApps/-/config [none]
+[debug] [2025-02-13T17:59:46.944Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/data-b93ed/webApps/-/config 200
+[debug] [2025-02-13T17:59:46.944Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/data-b93ed/webApps/-/config {"projectId":"data-b93ed","databaseURL":"https://data-b93ed-default-rtdb.firebaseio.com","storageBucket":"data-b93ed.appspot.com","locationId":"us-central","apiKey":"AIzaSyDCXIw7LJkOXlF3a4MTZA3kA3Q46gARpWU","authDomain":"data-b93ed.firebaseapp.com","messagingSenderId":"218236841715"}
+[info] 
+   Thank you for trying our early preview of Next.js support on Firebase Hosting.
+   During the preview, support is best-effort and breaking changes can be expected. Proceed with caution.
+
+   Documentation: https://firebase.google.com/docs/hosting/frameworks/nextjs
+   File a bug: https://github.com/firebase/firebase-tools/issues/new?template=bug_report.md
+   Submit a feature request: https://github.com/firebase/firebase-tools/issues/new?template=feature_request.md
+
+   We'd love to learn from you. Express your interest in helping us shape the future of Firebase Hosting: https://goo.gle/41enW5X
+
+[debug] [2025-02-13T17:59:55.824Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T17:59:55.825Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T17:59:55.825Z] >>> [apiv2][query] GET https://firebasehosting.googleapis.com/v1beta1/projects/data-b93ed/sites/data-b93ed [none]
+[debug] [2025-02-13T17:59:57.650Z] <<< [apiv2][status] GET https://firebasehosting.googleapis.com/v1beta1/projects/data-b93ed/sites/data-b93ed 200
+[debug] [2025-02-13T17:59:57.650Z] <<< [apiv2][body] GET https://firebasehosting.googleapis.com/v1beta1/projects/data-b93ed/sites/data-b93ed {"name":"projects/data-b93ed/sites/data-b93ed","defaultUrl":"https://data-b93ed.web.app","type":"DEFAULT_SITE"}
+[info]   ▲ Next.js 14.2.23
+
+[info]   - Environments: .env
+
+
+[info]    Creating an optimized production build ...
+
+[info]  ✓ Compiled successfully
+
+[info]    Linting and checking validity of types ...
+
+[info] Failed to compile.
+
+
+[info] ./app/claims/[id]/page.tsx:64:15
+Type error: 'claimData' is possibly 'null'.
+
+  62 |         const claimData = await getClaimDetails(params.id as string)
+  63 |         const formattedClaim: Claim = {
+> 64 |           id: claimData.id || '',
+     |               ^
+  65 |           contractNumber: claimData.contractNumber || '',
+  66 |           claimantName: claimData.claimantName || '',
+  67 |           claimType: claimData.claimType || '',
+
+[info] Static worker exited with code: 1 and signal: null
+
+[debug] [2025-02-13T18:00:32.616Z] Error: ENOENT: no such file or directory, open 'C:\Users\27824\Downloads\insurance-management-system (1)\.next\export-marker.json'
+[error] 
+[error] Error: An unexpected error has occurred.
+[debug] [2025-02-13T18:00:53.878Z] ----------------------------------------------------------------------
+[debug] [2025-02-13T18:00:53.880Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\27824\Downloads\insurance-management-system (1)\node_modules\firebase-tools\lib\bin\firebase.js deploy
+[debug] [2025-02-13T18:00:53.881Z] CLI Version:   13.31.0
+[debug] [2025-02-13T18:00:53.881Z] Platform:      win32
+[debug] [2025-02-13T18:00:53.881Z] Node Version:  v22.13.1
+[debug] [2025-02-13T18:00:53.881Z] Time:          Thu Feb 13 2025 20:00:53 GMT+0200 (South Africa Standard Time)
+[debug] [2025-02-13T18:00:53.881Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-02-13T18:00:54.174Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-02-13T18:00:54.174Z] > authorizing via signed-in user (karaboephraim2@gmail.com)
+[debug] [2025-02-13T18:00:54.174Z] [iam] checking project data-b93ed for permissions ["firebase.projects.get","firebasehosting.sites.update"]
+[debug] [2025-02-13T18:00:54.176Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T18:00:54.176Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T18:00:54.177Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/data-b93ed:testIamPermissions [none]
+[debug] [2025-02-13T18:00:54.177Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/data-b93ed:testIamPermissions x-goog-quota-user=projects/data-b93ed
+[debug] [2025-02-13T18:00:54.177Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/data-b93ed:testIamPermissions {"permissions":["firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2025-02-13T18:00:55.956Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/data-b93ed:testIamPermissions 200
+[debug] [2025-02-13T18:00:55.956Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/data-b93ed:testIamPermissions {"permissions":["firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2025-02-13T18:00:55.957Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T18:00:55.957Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T18:00:55.957Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/data-b93ed [none]
+[debug] [2025-02-13T18:00:56.560Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/data-b93ed 200
+[debug] [2025-02-13T18:00:56.561Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/data-b93ed {"projectId":"data-b93ed","projectNumber":"218236841715","displayName":"data","name":"projects/data-b93ed","resources":{"hostingSite":"data-b93ed","realtimeDatabaseInstance":"data-b93ed-default-rtdb","locationId":"us-central"},"state":"ACTIVE","etag":"1_5b1c50b8-07cc-40a1-9e81-6daaf1e2655b"}
+[debug] [2025-02-13T18:00:59.590Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T18:00:59.590Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T18:00:59.590Z] >>> [apiv2][query] GET https://firebasehosting.googleapis.com/v1beta1/projects/data-b93ed/sites pageToken=&pageSize=10
+[debug] [2025-02-13T18:01:01.428Z] <<< [apiv2][status] GET https://firebasehosting.googleapis.com/v1beta1/projects/data-b93ed/sites 200
+[debug] [2025-02-13T18:01:01.428Z] <<< [apiv2][body] GET https://firebasehosting.googleapis.com/v1beta1/projects/data-b93ed/sites {"sites":[{"name":"projects/data-b93ed/sites/data-b93ed","defaultUrl":"https://data-b93ed.web.app","type":"DEFAULT_SITE"}]}
+[debug] [2025-02-13T18:01:01.430Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T18:01:01.430Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T18:01:01.430Z] >>> [apiv2][query] GET https://firebasehosting.googleapis.com/v1beta1/projects/data-b93ed/sites 
+[debug] [2025-02-13T18:01:01.879Z] <<< [apiv2][status] GET https://firebasehosting.googleapis.com/v1beta1/projects/data-b93ed/sites 200
+[debug] [2025-02-13T18:01:01.880Z] <<< [apiv2][body] GET https://firebasehosting.googleapis.com/v1beta1/projects/data-b93ed/sites {"sites":[{"name":"projects/data-b93ed/sites/data-b93ed","defaultUrl":"https://data-b93ed.web.app","type":"DEFAULT_SITE"}]}
+[debug] [2025-02-13T18:01:01.880Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T18:01:01.880Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T18:01:01.881Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/data-b93ed/webApps/-/config [none]
+[debug] [2025-02-13T18:01:02.832Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/data-b93ed/webApps/-/config 200
+[debug] [2025-02-13T18:01:02.832Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/data-b93ed/webApps/-/config {"projectId":"data-b93ed","databaseURL":"https://data-b93ed-default-rtdb.firebaseio.com","storageBucket":"data-b93ed.appspot.com","locationId":"us-central","apiKey":"AIzaSyDCXIw7LJkOXlF3a4MTZA3kA3Q46gARpWU","authDomain":"data-b93ed.firebaseapp.com","messagingSenderId":"218236841715"}
+[info] 
+   Thank you for trying our early preview of Next.js support on Firebase Hosting.
+   During the preview, support is best-effort and breaking changes can be expected. Proceed with caution.
+
+   Documentation: https://firebase.google.com/docs/hosting/frameworks/nextjs
+   File a bug: https://github.com/firebase/firebase-tools/issues/new?template=bug_report.md
+   Submit a feature request: https://github.com/firebase/firebase-tools/issues/new?template=feature_request.md
+
+   We'd love to learn from you. Express your interest in helping us shape the future of Firebase Hosting: https://goo.gle/41enW5X
+
+[debug] [2025-02-13T18:01:09.712Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T18:01:09.712Z] Checked if tokens are valid: true, expires at: 1739471233315
+[debug] [2025-02-13T18:01:09.712Z] >>> [apiv2][query] GET https://firebasehosting.googleapis.com/v1beta1/projects/data-b93ed/sites/data-b93ed [none]
+[debug] [2025-02-13T18:01:11.552Z] <<< [apiv2][status] GET https://firebasehosting.googleapis.com/v1beta1/projects/data-b93ed/sites/data-b93ed 200
+[debug] [2025-02-13T18:01:11.552Z] <<< [apiv2][body] GET https://firebasehosting.googleapis.com/v1beta1/projects/data-b93ed/sites/data-b93ed {"name":"projects/data-b93ed/sites/data-b93ed","defaultUrl":"https://data-b93ed.web.app","type":"DEFAULT_SITE"}
+[info]   ▲ Next.js 14.2.23
+
+[info]   - Environments: .env
+
+
+[info]    Creating an optimized production build ...
+
+[info]  ✓ Compiled successfully
+
+[info]    Linting and checking validity of types ...
+
+[info] Failed to compile.
+
+
+[info] ./app/claims/[id]/page.tsx:64:15
+Type error: 'claimData' is possibly 'null'.
+
+  62 |         const claimData = await getClaimDetails(params.id as string)
+  63 |         const formattedClaim: Claim = {
+> 64 |           id: claimData.id || '',
+     |               ^
+  65 |           contractNumber: claimData.contractNumber || '',
+  66 |           claimantName: claimData.claimantName || '',
+  67 |           claimType: claimData.claimType || '',
+
+[info] Static worker exited with code: 1 and signal: null
+
+[debug] [2025-02-13T18:01:42.631Z] Error: ENOENT: no such file or directory, open 'C:\Users\27824\Downloads\insurance-management-system (1)\.next\export-marker.json'
+[error] 
+[error] Error: An unexpected error has occurred.

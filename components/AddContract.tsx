@@ -614,6 +614,7 @@ export function AddContract({ userRole }: AddContractProps) {
           <Tooltip>
             <TooltipTrigger asChild>
         <Button 
+          id="Previous"
           variant="outline" 
           onClick={() => handleTabChange(
                   currentTab === "policies" ? "policies" :
@@ -638,6 +639,7 @@ export function AddContract({ userRole }: AddContractProps) {
 
         <div className="space-x-4">
           <Button 
+            id="Cancel"
             variant="outline" 
             onClick={() => {
               if (window.confirm("Are you sure you want to cancel? All progress will be lost.")) {
@@ -655,6 +657,7 @@ export function AddContract({ userRole }: AddContractProps) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button 
+                  id={currentTab === "summary" ? "Submit" : "Next"}
                   onClick={() => {
                     if (currentTab === "summary") {
                       setIsSubmitDialogOpen(true)
@@ -739,6 +742,7 @@ export function AddContract({ userRole }: AddContractProps) {
           </div>
           <div className="flex justify-end space-x-2">
             <Button
+              id="Cancel"
               variant="outline"
               onClick={() => setIsSubmitDialogOpen(false)}
               disabled={isSubmitting}
@@ -746,6 +750,7 @@ export function AddContract({ userRole }: AddContractProps) {
               Cancel
             </Button>
             <Button
+              id="Confirm Submission"
               onClick={handleSubmit}
               disabled={isSubmitting}
               className="gap-2"

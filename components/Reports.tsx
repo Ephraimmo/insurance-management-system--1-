@@ -1192,6 +1192,7 @@ export function Reports() {
         {/* Export Buttons */}
         <div className="flex justify-end gap-4 mt-6">
           <Button 
+            id="Export Excel"
             variant="outline" 
             className="flex items-center gap-2"
             onClick={exportToExcel}
@@ -1200,6 +1201,7 @@ export function Reports() {
             Export Excel
           </Button>
           <Button 
+            id="Export CSV"
             variant="outline" 
             className="flex items-center gap-2"
             onClick={exportToCSV}
@@ -1208,6 +1210,7 @@ export function Reports() {
             Export CSV
           </Button>
           <Button 
+            id="Export PDF"
             variant="outline" 
             className="flex items-center gap-2"
             onClick={exportToPDF}

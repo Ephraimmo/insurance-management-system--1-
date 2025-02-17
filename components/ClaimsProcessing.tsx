@@ -218,6 +218,7 @@ export function ClaimsProcessing({ userRole }: ClaimsProcessingProps) {
               />
             </div>
             <Button 
+              id="Search"
               variant="outline" 
               onClick={() => fetchClaims()}
               disabled={loading}
@@ -323,6 +324,7 @@ export function ClaimsProcessing({ userRole }: ClaimsProcessingProps) {
                   <TableRow key={claim.id}>
                       <TableCell>
                         <Button
+                          id="View Claim"
                           variant="link"
                           onClick={() => handleViewClaim(claim.id)}
                           className="p-0 h-auto font-medium"
@@ -347,6 +349,7 @@ export function ClaimsProcessing({ userRole }: ClaimsProcessingProps) {
             {hasMore && !loading && (
               <div className="flex justify-center mt-4">
                 <Button
+                  id="Load More Claims"
                   variant="outline"
                   onClick={() => fetchClaims(true)}
                   className="flex items-center gap-2"

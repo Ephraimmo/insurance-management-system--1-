@@ -12,6 +12,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, AlertCircle, FileText, UserPlus, UserCog } from "lucide-react"
+import { validateSouthAfricanID } from "@/src/utils/idValidation"
 
 type MainMemberData = {
   personalInfo: {
@@ -85,6 +86,8 @@ const emptyMainMember: MainMemberData = {
   }
 }
 
+type ErrorState = { [key: string]: string } | null
+
 export function MainMemberDetails({ 
   mainMember, 
   updateMainMember, 
@@ -98,7 +101,7 @@ export function MainMemberDetails({
   const [saving, setSaving] = useState(false)
   const [existingMember, setExistingMember] = useState<MainMemberData | null>(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<ErrorState>(null)
 
   const canEdit = userRole && userRole !== 'View Only'
 
@@ -126,19 +129,99 @@ export function MainMemberDetails({
     }
   }, [mainMember])
 
+  const validateMainMemberData = (data: MainMemberData): ErrorState => {
+    const errors: { [key: string]: string } = {}
+
+    // Personal Information Validation
+    if (!data.personalInfo.title) errors.title = 'Title is required'
+    if (!data.personalInfo.firstName) errors.firstName = 'First name is required'
+    if (!data.personalInfo.lastName) errors.lastName = 'Last name is required'
+    if (!data.personalInfo.initials) errors.initials = 'Initials are required'
+    if (!data.personalInfo.dateOfBirth) errors.dateOfBirth = 'Date of birth is required'
+    if (!data.personalInfo.gender) errors.gender = 'Gender is required'
+    if (!data.personalInfo.language) errors.language = 'Language is required'
+    if (!data.personalInfo.maritalStatus) errors.maritalStatus = 'Marital status is required'
+    if (!data.personalInfo.nationality) errors.nationality = 'Nationality is required'
+    if (!data.personalInfo.idType) errors.idType = 'Type of ID is required'
+    if (!data.personalInfo.idNumber) errors.idNumber = 'ID number is required'
+
+    // ID validation
+    if (data.personalInfo.idNumber && data.personalInfo.idType === "South African ID") {
+      if (!validateSouthAfricanID(data.personalInfo.idNumber).isValid) {
+        errors.idNumber = 'Invalid South African ID number'
+      } else {
+        const birthDate = new Date(data.personalInfo.dateOfBirth || '')
+        const today = new Date()
+        const age = today.getFullYear() - birthDate.getFullYear()
+        const monthDiff = today.getMonth() - birthDate.getMonth()
+        const adjustedAge = monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate()) 
+          ? age - 1 
+          : age
+
+        if (adjustedAge < 18) {
+          errors.idNumber = 'Main member must be at least 18 years old to open a contract'
+        }
+      }
+    }
+
+    // Contact Details Validation
+    if (!data.contactDetails || data.contactDetails.length === 0) {
+      errors.contacts = 'At least one contact method is required'
+    } else {
+      data.contactDetails.forEach((contact, index) => {
+        if (!contact.type) errors[`contact${index}`] = 'Contact type is required'
+        if (!contact.value) errors[`contact${index}`] = 'Contact value is required'
+        
+        if (contact.type === "Email" && contact.value) {
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+          if (!emailRegex.test(contact.value)) {
+            errors[`contact${index}`] = 'Invalid email format'
+          }
+        }
+        
+        if (contact.type === "Phone Number" && contact.value) {
+          const phoneRegex = /^[0-9+\-\s()]{10,}$/
+          if (!phoneRegex.test(contact.value)) {
+            errors[`contact${index}`] = 'Invalid phone number format'
+          }
+        }
+      })
+    }
+
+    // Address Details Validation
+    if (!data.addressDetails.streetAddress) errors.streetAddress = 'Street address is required'
+    if (!data.addressDetails.city) errors.city = 'City is required'
+    if (!data.addressDetails.stateProvince) errors.stateProvince = 'State/Province is required'
+    if (!data.addressDetails.postalCode) errors.postalCode = 'Postal code is required'
+    if (!data.addressDetails.country) errors.country = 'Country is required'
+
+    return Object.keys(errors).length > 0 ? errors : null
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const validationErrors = validateMainMemberData(formData)
+    if (validationErrors) {
+      setError(validationErrors)
+      return
+    }
+    await saveToFirestore(formData)
+  }
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const validationErrors = validateMainMemberData(formData)
+    if (validationErrors) {
+      setError(validationErrors)
+      return
+    }
+    await updateExistingMember(formData)
+  }
+
   const saveToFirestore = async (data: MainMemberData) => {
     setSaving(true)
     setError(null)
     try {
-      if (!selectedPolicies?.policiesId) {
-        throw new Error('Please select a plan before adding main member details')
-      }
-
-      // First, validate required fields
-      if (!data.personalInfo.firstName || !data.personalInfo.lastName || !data.personalInfo.idNumber) {
-        throw new Error('Please fill in all required fields (First Name, Last Name, and ID Number)')
-      }
-
       // First, save personal info to Members collection
       const memberRef = await addDoc(collection(db, 'Members'), {
         ...data.personalInfo,
@@ -194,7 +277,7 @@ export function MainMemberDetails({
       setSaving(false)
     } catch (error) {
       console.error('Error saving member data:', error)
-      setError(error instanceof Error ? error.message : 'Failed to save member data. Please try again.')
+      setError({ general: error instanceof Error ? error.message : 'Failed to save member data. Please try again.' })
       setSaving(false)
     }
   }
@@ -203,11 +286,6 @@ export function MainMemberDetails({
     setSaving(true)
     setError(null)
     try {
-      // Validate required fields
-      if (!data.personalInfo.firstName || !data.personalInfo.lastName || !data.personalInfo.idNumber) {
-        throw new Error('Please fill in all required fields (First Name, Last Name, and ID Number)')
-      }
-
       // Update personal info in Members collection
       const membersQuery = query(
         collection(db, 'Members'),
@@ -266,16 +344,8 @@ export function MainMemberDetails({
       setSaving(false)
     } catch (error) {
       console.error('Error updating member data:', error)
-      setError(error instanceof Error ? error.message : 'Failed to update member data. Please try again.')
+      setError({ general: error instanceof Error ? error.message : 'Failed to update member data. Please try again.' })
       setSaving(false)
-    }
-  }
-
-  const handleSubmit = (data: { mainMember: MainMemberData }) => {
-    if (mainMember.contractNumber) {
-      updateExistingMember(data.mainMember)
-    } else {
-      saveToFirestore(data.mainMember)
     }
   }
 
@@ -336,19 +406,15 @@ export function MainMemberDetails({
                   }}
                 >
                   <DialogTrigger asChild>
-                    <Button className="gap-2">
+                    <Button id="Add Main Member" className="gap-2">
                       <UserPlus className="h-4 w-4" />
                       Add Main Member
                     </Button>
                   </DialogTrigger>
                   <DialogContent 
                     className="max-w-4xl max-h-[90vh] overflow-y-auto"
-                    onPointerDownOutside={(e) => {
-                      if (saving) e.preventDefault()
-                    }}
-                    onEscapeKeyDown={(e) => {
-                      if (saving) e.preventDefault()
-                    }}
+                    onPointerDownOutside={(e) => e.preventDefault()}
+                    onEscapeKeyDown={(e) => e.preventDefault()}
                   >
                     <DialogHeader>
                       <DialogTitle className="flex items-center gap-2">
@@ -357,16 +423,19 @@ export function MainMemberDetails({
                         {saving && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
                       </DialogTitle>
                     </DialogHeader>
-                    {error && (
+                    {error && 'general' in error && (
                       <Alert variant="destructive" className="mb-4">
                         <AlertCircle className="h-4 w-4" />
                         <AlertTitle>Error</AlertTitle>
-                        <AlertDescription>{error}</AlertDescription>
+                        <AlertDescription>
+                          {error.general}
+                        </AlertDescription>
                       </Alert>
                     )}
                     <MainMemberForm
                       data={emptyMainMember}
-                      updateData={(data) => setFormData(data.mainMember)}
+                      updateData={setFormData}
+                      errors={error || undefined}
                     />
                     <div className="flex justify-end space-x-2 mt-4">
                       <Button 
@@ -382,8 +451,9 @@ export function MainMemberDetails({
                         Cancel
                       </Button>
                       <Button 
-                        onClick={() => handleSubmit({ mainMember: formData })}
+                        onClick={handleSubmit}
                         disabled={saving}
+                        id="Save"
                         className="gap-2"
                       >
                         {saving ? (
@@ -458,12 +528,8 @@ export function MainMemberDetails({
                             </DialogTrigger>
                             <DialogContent 
                               className="max-w-4xl max-h-[90vh] overflow-y-auto"
-                              onPointerDownOutside={(e) => {
-                                if (saving) e.preventDefault()
-                              }}
-                              onEscapeKeyDown={(e) => {
-                                if (saving) e.preventDefault()
-                              }}
+                              onPointerDownOutside={(e) => e.preventDefault()}
+                              onEscapeKeyDown={(e) => e.preventDefault()}
                             >
                               <DialogHeader>
                                 <DialogTitle className="flex items-center gap-2">
@@ -472,16 +538,19 @@ export function MainMemberDetails({
                                   {saving && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
                                 </DialogTitle>
                               </DialogHeader>
-                              {error && (
+                              {error && 'general' in error && (
                                 <Alert variant="destructive" className="mb-4">
                                   <AlertCircle className="h-4 w-4" />
                                   <AlertTitle>Error</AlertTitle>
-                                  <AlertDescription>{error}</AlertDescription>
+                                  <AlertDescription>
+                                    {error.general}
+                                  </AlertDescription>
                                 </Alert>
                               )}
                               <MainMemberForm
                                 data={mainMember}
-                                updateData={(data) => setFormData(data.mainMember)}
+                                updateData={setFormData}
+                                errors={error || undefined}
                               />
                               <div className="flex justify-end space-x-2 mt-4">
                                 <Button 
@@ -497,7 +566,7 @@ export function MainMemberDetails({
                                   Cancel
                                 </Button>
                                 <Button 
-                                  onClick={() => handleSubmit({ mainMember: formData })}
+                                  onClick={handleUpdate}
                                   disabled={saving}
                                   className="gap-2"
                                 >
