@@ -7,45 +7,40 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Loader2, ArrowLeft } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { getClaimDetails } from "@/src/claimFunctions"
+import { getClaimDetails } from "@/lib/claims"
 import { format } from "date-fns"
 
-type Claim = {
+// Define the proper types
+interface Claim {
   id: string
   contractNumber: string
   claimantName: string
   claimType: string
+  claimAmount: number
+  claimDate: string
   status: string
-  amount: number
   description: string
-  dateSubmitted: Date
-  lastUpdated: Date
-  documents?: string[]
-  relationship: string
-  serviceDate: string
-  serviceProvider: string
-  location: string
-  policy: {
-    policyNumber: string
-    holderName: string
-    coverageAmount: number
-  } | null
-  deceased?: {
-    firstName: string
-    lastName: string
-    idNumber: string
-    dateOfDeath: string
-    causeOfDeath: string
-    placeOfDeath: string
-    relationship: string
-  } | null
-  bankDetails?: {
-    accountHolder: string
-    bankName: string
-    accountType: string
-    accountNumber: string
-    branchCode: string
-  } | null
+  documents: string[]
+  assessorName?: string
+  assessmentDate?: string
+  approvalDate?: string
+  paymentDate?: string
+}
+
+interface ClaimDetails {
+  id: string
+  contractNumber: string
+  claimantName: string
+  claimType: string
+  claimAmount: number
+  claimDate: string
+  status: string
+  description: string
+  documents: string[]
+  assessorName?: string
+  assessmentDate?: string
+  approvalDate?: string
+  paymentDate?: string
 }
 
 export default function ClaimDetails() {
@@ -56,11 +51,27 @@ export default function ClaimDetails() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const fetchClaimDetails = async () => {
+    async function loadClaimDetails() {
       try {
         setLoading(true)
         const claimData = await getClaimDetails(params.id as string)
-          setClaim(claimData)
+        // Convert ClaimDetails to Claim if needed
+        const claimWithCorrectType: Claim = {
+          id: claimData.id,
+          contractNumber: claimData.contractNumber,
+          claimantName: claimData.claimantName,
+          claimType: claimData.claimType,
+          claimAmount: claimData.claimAmount,
+          claimDate: claimData.claimDate,
+          status: claimData.status,
+          description: claimData.description,
+          documents: claimData.documents,
+          assessorName: claimData.assessorName,
+          assessmentDate: claimData.assessmentDate,
+          approvalDate: claimData.approvalDate,
+          paymentDate: claimData.paymentDate,
+        }
+        setClaim(claimWithCorrectType)
       } catch (error) {
         console.error('Error fetching claim details:', error)
         setError('Failed to load claim details')
@@ -69,9 +80,7 @@ export default function ClaimDetails() {
       }
     }
 
-    if (params.id) {
-      fetchClaimDetails()
-    }
+    loadClaimDetails()
   }, [params.id])
 
   const getStatusColor = (status: string) => {
@@ -104,7 +113,7 @@ export default function ClaimDetails() {
           <CardContent className="pt-6">
             <div className="text-center text-red-600">
               {error || 'Claim not found'}
-      </div>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -113,14 +122,14 @@ export default function ClaimDetails() {
 
   return (
     <div className="p-4 space-y-6">
-          <Button
+      <Button
         variant="ghost"
-            onClick={() => router.back()}
+        onClick={() => router.back()}
         className="mb-4"
-          >
+      >
         <ArrowLeft className="mr-2 h-4 w-4" />
         Back to Claims
-          </Button>
+      </Button>
 
       <Card>
         <CardHeader>
@@ -140,55 +149,42 @@ export default function ClaimDetails() {
                 <p><span className="font-medium">Contract Number:</span> {claim.contractNumber}</p>
                 <p><span className="font-medium">Claimant Name:</span> {claim.claimantName}</p>
                 <p><span className="font-medium">Claim Type:</span> {claim.claimType}</p>
-                <p><span className="font-medium">Amount:</span> ${claim.amount.toFixed(2)}</p>
-                <p><span className="font-medium">Date Submitted:</span> {format(claim.dateSubmitted, 'dd/MM/yyyy')}</p>
-                <p><span className="font-medium">Last Updated:</span> {format(claim.lastUpdated, 'dd/MM/yyyy')}</p>
-        </div>
-      </div>
-
-            {claim.policy && (
-              <div>
-                <h3 className="font-semibold mb-2">Policy Information</h3>
-                <div className="space-y-2">
-                  <p><span className="font-medium">Policy Number:</span> {claim.policy.policyNumber}</p>
-                  <p><span className="font-medium">Holder Name:</span> {claim.policy.holderName}</p>
-                  <p><span className="font-medium">Coverage Amount:</span> ${claim.policy.coverageAmount.toFixed(2)}</p>
-                </div>
+                <p><span className="font-medium">Amount:</span> ${claim.claimAmount.toLocaleString()}</p>
+                <p><span className="font-medium">Date Submitted:</span> {format(new Date(claim.claimDate), 'dd/MM/yyyy')}</p>
+                <p><span className="font-medium">Status:</span> {claim.status}</p>
               </div>
-            )}
+            </div>
+
+            <div>
+              <h3 className="font-semibold mb-2">Description</h3>
+              <p className="whitespace-pre-wrap">{claim.description}</p>
+            </div>
           </div>
 
-          {claim.deceased && (
+          {claim.assessorName && (
             <div>
-              <h3 className="font-semibold mb-2">Deceased Information</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <p><span className="font-medium">Name:</span> {claim.deceased.firstName} {claim.deceased.lastName}</p>
-                <p><span className="font-medium">ID Number:</span> {claim.deceased.idNumber}</p>
-                <p><span className="font-medium">Date of Death:</span> {claim.deceased.dateOfDeath}</p>
-                <p><span className="font-medium">Cause of Death:</span> {claim.deceased.causeOfDeath}</p>
-                <p><span className="font-medium">Place of Death:</span> {claim.deceased.placeOfDeath}</p>
-                <p><span className="font-medium">Relationship:</span> {claim.deceased.relationship}</p>
-              </div>
+              <h3 className="font-semibold mb-2">Assessor</h3>
+              <p>{claim.assessorName}</p>
             </div>
           )}
 
-          {claim.bankDetails && (
+          {claim.assessmentDate && (
             <div>
-              <h3 className="font-semibold mb-2">Bank Details</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <p><span className="font-medium">Account Holder:</span> {claim.bankDetails.accountHolder}</p>
-                <p><span className="font-medium">Bank Name:</span> {claim.bankDetails.bankName}</p>
-                <p><span className="font-medium">Account Type:</span> {claim.bankDetails.accountType}</p>
-                <p><span className="font-medium">Account Number:</span> {claim.bankDetails.accountNumber}</p>
-                <p><span className="font-medium">Branch Code:</span> {claim.bankDetails.branchCode}</p>
-              </div>
+              <h3 className="font-semibold mb-2">Assessment Date</h3>
+              <p>{format(new Date(claim.assessmentDate), 'dd/MM/yyyy')}</p>
             </div>
           )}
 
-          <div>
-            <h3 className="font-semibold mb-2">Description</h3>
-            <p className="whitespace-pre-wrap">{claim.description}</p>
-          </div>
+          {claim.documents.length > 0 && (
+            <div className="col-span-2">
+              <h3 className="font-semibold mb-2">Documents</h3>
+              <ul className="list-disc list-inside">
+                {claim.documents.map((doc, index) => (
+                  <li key={index}>{doc}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

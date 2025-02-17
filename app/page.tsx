@@ -1,5 +1,5 @@
-import { fetchData } from "@/lib/data"
-import { InsuranceManagementSystemClient } from "./components/InsuranceManagementSystemClient"
+import { fetchData } from '@/lib/data'
+import InsuranceManagementSystemClient from './components/InsuranceManagementSystemClient'
 
 // This is your new server component
 export default async function InsuranceManagementSystem() {
