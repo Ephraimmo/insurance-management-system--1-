@@ -43,15 +43,20 @@ export const getAllUsers = async (): Promise<User[]> => {
 
 export const searchUsers = async (username: string, role: string): Promise<User[]> => {
   try {
-    const usersRef = collection(db, "users")
-    let q = query(usersRef)
-    
+    let q = collection(db, "users")
+    const conditions = []
+
     if (username) {
-      q = query(q, where("username", ">=", username), where("username", "<=", username + "\uf8ff"))
+      conditions.push(where("username", ">=", username))
+      conditions.push(where("username", "<=", username + "\uf8ff"))
     }
 
     if (role && role !== "all") {
-      q = query(q, where("role", "==", role))
+      conditions.push(where("role", "==", role))
+    }
+
+    if (conditions.length > 0) {
+      q = query(q, ...conditions)
     }
 
     const snapshot = await getDocs(q)

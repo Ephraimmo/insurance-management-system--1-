@@ -15,7 +15,7 @@ import { jsPDF } from 'jspdf'
 import 'jspdf-autotable'
 import { Parser } from 'json2csv'
 import { Progress } from "@/components/ui/progress"
-import { db } from "@/src/FirebaseConfg"
+import { db } from "@/lib/FirebaseConfig"
 import { collection, query, where, getDocs } from "firebase/firestore"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 
@@ -1225,3 +1225,4 @@ export function Reports() {
     </div>
   )
 }
+

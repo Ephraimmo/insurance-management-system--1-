@@ -9,7 +9,8 @@ import {
   where, 
   getDocs,
   doc,
-  getDoc
+  getDoc,
+  setDoc
 } from "firebase/firestore"
 import { db } from "./FirebaseConfg"
 
@@ -28,18 +29,62 @@ interface AuthResponse {
 export const loginWithEmail = async (email: string, password: string): Promise<AuthResponse> => {
   try {
     const auth = getAuth()
+    
+    // First try to authenticate with Firebase Auth
     const userCredential = await signInWithEmailAndPassword(auth, email, password)
     
-    // All users logging in with email are considered admin by default
+    if (!userCredential.user) {
+      return {
+        success: false,
+        role: '',
+        error: 'Authentication failed'
+      }
+    }
+
+    // Check if user exists in Firestore
+    const usersRef = collection(db, 'users')
+    const q = query(usersRef, where('email', '==', email))
+    const snapshot = await getDocs(q)
+
+    if (snapshot.empty) {
+      // Create a new admin user in Firestore if they don't exist
+      const userDoc = doc(usersRef)
+      await setDoc(userDoc, {
+        email,
+        role: 'Admin',
+        createdAt: new Date()
+      })
+      
+      return {
+        success: true,
+        role: 'Admin'
+      }
+    }
+
+    const userData = snapshot.docs[0].data()
+    
     return {
       success: true,
-      role: 'Admin'
+      role: userData.role || 'Admin'
     }
   } catch (error: any) {
+    console.error('Login error:', error)
+    let errorMessage = 'Failed to login'
+    
+    if (error.code === 'auth/user-not-found') {
+      errorMessage = 'No user found with this email'
+    } else if (error.code === 'auth/wrong-password') {
+      errorMessage = 'Invalid password'
+    } else if (error.code === 'auth/invalid-email') {
+      errorMessage = 'Invalid email format'
+    } else if (error.code === 'auth/too-many-requests') {
+      errorMessage = 'Too many failed attempts. Please try again later'
+    }
+
     return {
       success: false,
       role: '',
-      error: error.message
+      error: errorMessage
     }
   }
 }
@@ -55,14 +100,15 @@ export const loginWithUsername = async (username: string, password: string): Pro
       return {
         success: false,
         role: '',
-        error: 'User not found'
+        error: 'No user found with this username'
       }
     }
 
     const userDoc = snapshot.docs[0]
     const userData = userDoc.data()
 
-    // In production, you should use proper password hashing
+    // TODO: Implement proper password hashing
+    // For now, using direct comparison (NOT recommended for production)
     if (userData.password !== password) {
       return {
         success: false,
@@ -71,20 +117,32 @@ export const loginWithUsername = async (username: string, password: string): Pro
       }
     }
 
+    // Update last login timestamp
+    await setDoc(doc(usersRef, userDoc.id), {
+      ...userData,
+      lastLogin: new Date()
+    }, { merge: true })
+
     return {
       success: true,
-      role: userData.role
+      role: userData.role || 'User'
     }
   } catch (error: any) {
+    console.error('Login error:', error)
     return {
       success: false,
       role: '',
-      error: error.message
+      error: 'An unexpected error occurred. Please try again.'
     }
   }
 }
 
 export const logoutUser = async (): Promise<void> => {
-  const auth = getAuth()
-  await signOut(auth)
+  try {
+    const auth = getAuth()
+    await signOut(auth)
+  } catch (error) {
+    console.error('Logout error:', error)
+    throw error
+  }
 } 

@@ -397,7 +397,7 @@ export function Payment() {
             <DialogTrigger asChild>
               <Button 
                 id="Add Payment"
-                onClick={() => setIsDialogOpen(true)}
+                onClick={() => setShowAddPaymentDialog(true)}
               >
                 <Plus className="h-4 w-4 mr-2" />
                 Add Payment

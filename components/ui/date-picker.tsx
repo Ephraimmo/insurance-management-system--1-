@@ -11,7 +11,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { DayPicker } from "react-day-picker"
 
 interface DatePickerProps {
   selected?: Date | null
@@ -47,7 +46,7 @@ export function DatePicker({ selected, onSelect, id, className }: DatePickerProp
             aria-label="Date of Birth"
           >
             <CalendarIcon className="mr-2 h-4 w-4" />
-            {selected ? format(selected, "PPP") : "Pick a date"}
+            {selected ? format(selected, "dd/MM/yyyy") : "Pick a date"}
           </Button>
         </PopoverTrigger>
         <PopoverContent 
@@ -56,14 +55,27 @@ export function DatePicker({ selected, onSelect, id, className }: DatePickerProp
           role="dialog"
           aria-label="Choose date"
         >
-          <DayPicker
+          <Calendar
             mode="single"
-            selected={selected || undefined}
+            selected={selected}
             onSelect={(date) => {
-              onSelect(date || null)
-              setIsOpen(false)
+              onSelect(date);
+              setIsOpen(false);
             }}
             initialFocus
+            className="rdp"
+            fromDate={new Date(1900, 0, 1)}
+            toDate={new Date(2100, 11, 31)}
+            formatters={{
+              formatDay: (date) => {
+                const formattedDate = format(date, "yyyy-MM-dd");
+                return (
+                  <div data-date={formattedDate}>
+                    {date.getDate()}
+                  </div>
+                );
+              }
+            }}
           />
         </PopoverContent>
       </Popover>

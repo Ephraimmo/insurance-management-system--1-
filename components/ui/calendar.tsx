@@ -16,6 +16,10 @@ function Calendar({
   showOutsideDays = true,
   ...props
 }: CalendarProps) {
+  const formatDayAriaLabel = (date: Date) => {
+    return format(date, "dd/MM/yyyy")
+  }
+
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
@@ -57,6 +61,18 @@ function Calendar({
       components={{
         IconLeft: ({ ...props }) => <ChevronLeft className="h-4 w-4" />,
         IconRight: ({ ...props }) => <ChevronRight className="h-4 w-4" />,
+      }}
+      formatters={{
+        formatAria: formatDayAriaLabel
+      }}
+      modifiers={{
+        selected: (date) => {
+          if (!props.selected) return false;
+          return date.getTime() === props.selected.getTime();
+        }
+      }}
+      modifiersClassNames={{
+        selected: "rdp-day_selected"
       }}
       {...props}
     />
