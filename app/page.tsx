@@ -1,4 +1,5 @@
-import { fetchData } from '@/lib/data' // Create this file for your data fetching logic
+import { fetchData } from '../lib/data' // Update the import path
+import { InsuranceManagementSystemClient } from '../components/InsuranceManagementSystemClient'
 
 // This is your new server component
 export default async function InsuranceManagementSystem() {
