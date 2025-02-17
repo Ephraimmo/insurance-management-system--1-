@@ -1,6 +1,5 @@
 "use client"
 
-import React from "react"
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -396,51 +395,75 @@ export function DependentDetails({
       // Validate all required fields and data
       const validationErrors = validateDependentData(formData)
       if (validationErrors.length > 0) {
-        const fieldErrors: { [key: string]: string } = {};
-
-        validationErrors.forEach(error => {
-          // Personal Information
-          if (error.includes("First Name")) fieldErrors.firstName = error;
-          if (error.includes("Last Name")) fieldErrors.lastName = error;
-          if (error.includes("Initials")) fieldErrors.initials = error;
-          if (error.includes("Date of Birth")) fieldErrors.dateOfBirth = error;
-          if (error.includes("Gender")) fieldErrors.gender = error;
-          if (error.includes("Relationship")) fieldErrors.relationshipToMainMember = error;
-          if (error.includes("Nationality")) fieldErrors.nationality = error;
-          if (error.includes("Type of ID")) fieldErrors.idType = error;
-          if (error.includes("ID Number") || error.includes("South African ID number")) fieldErrors.idNumber = error;
-          if (error.includes("Dependent Status")) fieldErrors.dependentStatus = error;
-          if (error.includes("Child dependents")) fieldErrors.relationshipToMainMember = error;
-
-          // Contact Details
-          if (error.includes("contact")) {
-            const contactIndex = error.match(/contact #(\d+)/)?.[1];
-            if (contactIndex) {
-              const index = parseInt(contactIndex) - 1;
-              if (error.includes("type")) fieldErrors[`contact${index}Type`] = error;
-              if (error.includes("value") || error.includes("email") || error.includes("phone")) {
-                fieldErrors[`contact${index}Value`] = error;
-              }
-            }
-          }
-
-          // Address Details
-          if (error.includes("Street Address")) fieldErrors.streetAddress = error;
-          if (error.includes("City")) fieldErrors.city = error;
-          if (error.includes("State/Province")) fieldErrors.stateProvince = error;
-          if (error.includes("Postal Code") || error.includes("postal code")) fieldErrors.postalCode = error;
-          if (error.includes("Country")) fieldErrors.country = error;
-        });
-
-        // Pass the field errors to the form
-        setError(
-          <DependentForm
-            data={formData}
-            updateData={setFormData}
-            validationErrors={fieldErrors}
-            mainMemberIdNumber={mainMemberIdNumber}
-          />
+        const personalInfoErrors = validationErrors.filter(error => 
+          error.includes("First Name") || 
+          error.includes("Last Name") ||
+          error.includes("Initials") ||
+          error.includes("Date of Birth") ||
+          error.includes("Gender") ||
+          error.includes("Relationship") ||
+          error.includes("Nationality") ||
+          error.includes("Type of ID") ||
+          error.includes("ID Number") ||
+          error.includes("South African ID number") ||
+          error.includes("Dependent Status") ||
+          error.includes("Child dependents")
         );
+
+        const contactErrors = validationErrors.filter(error => 
+          error.includes("contact") ||
+          error.includes("email") ||
+          error.includes("phone")
+        );
+
+        const addressErrors = validationErrors.filter(error => 
+          error.includes("Street Address") ||
+          error.includes("City") ||
+          error.includes("State/Province") ||
+          error.includes("Postal Code") ||
+          error.includes("Country")
+        );
+
+        const errorContent = (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              {personalInfoErrors.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-medium text-destructive border-b pb-1">Personal Information</h4>
+                  <ul className="list-disc pl-4 space-y-1">
+                    {personalInfoErrors.map((error, index) => (
+                      <li key={index} className="text-sm">{error}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              
+              {contactErrors.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-medium text-destructive border-b pb-1">Contact Details</h4>
+                  <ul className="list-disc pl-4 space-y-1">
+                    {contactErrors.map((error, index) => (
+                      <li key={index} className="text-sm">{error}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              
+              {addressErrors.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-medium text-destructive border-b pb-1">Address Details</h4>
+                  <ul className="list-disc pl-4 space-y-1">
+                    {addressErrors.map((error, index) => (
+                      <li key={index} className="text-sm">{error}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+
+        setError(errorContent);
         setIsSaving(false);
         return;
       }
@@ -487,52 +510,7 @@ export function DependentDetails({
       // Validate required fields
       const validationErrors = validateDependentData(formData);
       if (validationErrors.length > 0) {
-        const fieldErrors: { [key: string]: string } = {};
-
-        validationErrors.forEach(error => {
-          // Personal Information
-          if (error.includes("First Name")) fieldErrors.firstName = error;
-          if (error.includes("Last Name")) fieldErrors.lastName = error;
-          if (error.includes("Initials")) fieldErrors.initials = error;
-          if (error.includes("Date of Birth")) fieldErrors.dateOfBirth = error;
-          if (error.includes("Gender")) fieldErrors.gender = error;
-          if (error.includes("Relationship")) fieldErrors.relationshipToMainMember = error;
-          if (error.includes("Nationality")) fieldErrors.nationality = error;
-          if (error.includes("Type of ID")) fieldErrors.idType = error;
-          if (error.includes("ID Number") || error.includes("South African ID number")) fieldErrors.idNumber = error;
-          if (error.includes("Dependent Status")) fieldErrors.dependentStatus = error;
-          if (error.includes("Child dependents")) fieldErrors.relationshipToMainMember = error;
-
-          // Contact Details
-          if (error.includes("contact")) {
-            const contactIndex = error.match(/contact #(\d+)/)?.[1];
-            if (contactIndex) {
-              const index = parseInt(contactIndex) - 1;
-              if (error.includes("type")) fieldErrors[`contact${index}Type`] = error;
-              if (error.includes("value") || error.includes("email") || error.includes("phone")) {
-                fieldErrors[`contact${index}Value`] = error;
-              }
-            }
-          }
-
-          // Address Details
-          if (error.includes("Street Address")) fieldErrors.streetAddress = error;
-          if (error.includes("City")) fieldErrors.city = error;
-          if (error.includes("State/Province")) fieldErrors.stateProvince = error;
-          if (error.includes("Postal Code") || error.includes("postal code")) fieldErrors.postalCode = error;
-          if (error.includes("Country")) fieldErrors.country = error;
-        });
-
-        // Pass the field errors to the form
-        setError(
-          <DependentForm
-            data={formData}
-            updateData={setFormData}
-            validationErrors={fieldErrors}
-            mainMemberIdNumber={mainMemberIdNumber}
-          />
-        );
-        setIsSaving(false);
+        setError(validationErrors.join('\n'));
         return;
       }
 
@@ -546,7 +524,7 @@ export function DependentDetails({
           ...formData,
           id: dependentId
         }
-        updateDependents(updatedDependents)
+    updateDependents(updatedDependents)
         
         // Reset form and close dialog
         setIsDialogOpen(false)
@@ -724,12 +702,19 @@ export function DependentDetails({
                       }}
                       error={typeof error === 'string' ? error : null}
                       mainMemberIdNumber={mainMemberIdNumber}
-                      validationErrors={typeof error !== 'string' && React.isValidElement(error) ? error.props.validationErrors : {}}
                     />
                     <div className="flex justify-end space-x-2 mt-4">
                       <Button 
                         variant="outline" 
-                        onClick={handleCancel}
+                        onClick={() => {
+                          if (!isSaving) {
+                            setIsDialogOpen(false)
+                            setEditingDependent(null)
+                            setEditingIndex(null)
+                            setFormData(emptyDependent)
+                            setError(null)
+                          }
+                        }}
                         disabled={isSaving}
                       >
                         Cancel

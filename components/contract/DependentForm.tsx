@@ -47,19 +47,13 @@ type DependentFormProps = {
   updateData: (data: DependentData) => void
   error?: string | null
   mainMemberIdNumber?: string
-  validationErrors?: { [key: string]: string }
 }
 
-export function DependentForm({ 
-  data, 
-  updateData, 
-  error: externalError, 
-  mainMemberIdNumber,
-  validationErrors = {} 
-}: DependentFormProps) {
+export function DependentForm({ data, updateData, error: externalError, mainMemberIdNumber }: DependentFormProps) {
   const [personalInfo, setPersonalInfo] = useState(data.personalInfo)
   const [contactDetails, setContactDetails] = useState(data.contactDetails)
   const [addressDetails, setAddressDetails] = useState(data.addressDetails)
+  const [activeTab, setActiveTab] = useState("personal-info")
   const [error, setError] = useState<string | null>(externalError || null)
   const [idValidationErrors, setIdValidationErrors] = useState<string[]>([])
 
@@ -147,77 +141,71 @@ export function DependentForm({
         </div>
       )}
       
-      <Card className="p-4">
-        <div className="grid grid-cols-3 gap-3">
-          <div className="flex gap-3 col-span-3">
-            <div className="flex-1">
-              <Label htmlFor="type-of-id">Type of ID</Label>
-              <Select
-                value={personalInfo.idType}
-                onValueChange={(value: "South African ID" | "Passport") => handlePersonalInfoChange("idType", value)}
-              >
-                <SelectTrigger id="type-of-id" className={validationErrors?.idType ? "border-red-500" : ""}>
-                  <SelectValue placeholder="Select ID type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="South African ID">South African ID</SelectItem>
-                  <SelectItem value="Passport">Passport</SelectItem>
-                </SelectContent>
-              </Select>
-              {validationErrors?.idType && (
-                <p className="text-sm text-red-500 mt-1">{validationErrors.idType}</p>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="personal-info">Personal Information</TabsTrigger>
+          <TabsTrigger value="contact-details">Contact Details</TabsTrigger>
+          <TabsTrigger value="address-details">Address Details</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="personal-info">
+          <Card className="p-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="flex gap-3 col-span-3">
+                <div className="flex-1">
+                  <Label htmlFor="type-of-id">Type of ID</Label>
+                  <Select
+                    value={personalInfo.idType}
+                    onValueChange={(value: "South African ID" | "Passport") => handlePersonalInfoChange("idType", value)}
+                  >
+                    <SelectTrigger id="type-of-id">
+                      <SelectValue placeholder="Select ID type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="South African ID">South African ID</SelectItem>
+                      <SelectItem value="Passport">Passport</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex-1">
+                  <Label htmlFor="idnumber/passportnumber">
+                    ID Number / Passport Number
+                    {personalInfo.idType === "South African ID" && (
+                      <span className="text-sm text-gray-500 ml-2">(13 digits)</span>
+                    )}
+                  </Label>
+                  <Input
+                    aria-label="idnumber/passportnumber"
+                    value={personalInfo.idNumber}
+                    onChange={(e) => handlePersonalInfoChange("idNumber", e.target.value)}
+                    className={idValidationErrors.length > 0 ? "border-red-500" : ""}
+                  />
+                </div>
+              </div>
+
+              {personalInfo.idType === "South African ID" && idValidationErrors.length > 0 && (
+                <div className="col-span-3">
+                  <Alert variant="destructive" className="mt-1">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      <ul className="list-disc pl-4">
+                        {idValidationErrors.map((error, index) => (
+                          <li key={index} className="text-sm">{error}</li>
+                        ))}
+                      </ul>
+                    </AlertDescription>
+                  </Alert>
+                </div>
               )}
-            </div>
 
-            <div className="flex-1">
-              <Label htmlFor="idnumber/passportnumber">
-                ID Number / Passport Number
-                {personalInfo.idType === "South African ID" && (
-                  <span className="text-sm text-gray-500 ml-2">(13 digits)</span>
-                )}
-              </Label>
-              <Input
-                aria-label="idnumber/passportnumber"
-                value={personalInfo.idNumber}
-                onChange={(e) => handlePersonalInfoChange("idNumber", e.target.value)}
-                className={validationErrors?.idNumber || idValidationErrors.length > 0 ? "border-red-500" : ""}
-              />
-              {(validationErrors?.idNumber || idValidationErrors.length > 0) && (
-                <p className="text-sm text-red-500 mt-1">
-                  {validationErrors?.idNumber || idValidationErrors[0]}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {personalInfo.idType === "South African ID" && idValidationErrors.length > 0 && (
-            <div className="col-span-3">
-              <Alert variant="destructive" className="mt-1">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  <ul className="list-disc pl-4">
-                    {idValidationErrors.map((error, index) => (
-                      <li key={index} className="text-sm">{error}</li>
-                    ))}
-                  </ul>
-                </AlertDescription>
-              </Alert>
-            </div>
-          )}
-
-          {/* Personal Information Fields */}
-          <div className="col-span-3 grid grid-cols-3 gap-3">
               <div>
                 <Label htmlFor="firstName">First Name</Label>
                 <Input
                   id="firstName"
                   value={personalInfo.firstName}
                   onChange={(e) => handlePersonalInfoChange("firstName", e.target.value)}
-                className={validationErrors?.firstName ? "border-red-500" : ""}
                 />
-              {validationErrors?.firstName && (
-                <p className="text-sm text-red-500 mt-1">{validationErrors.firstName}</p>
-              )}
               </div>
 
               <div>
@@ -226,11 +214,7 @@ export function DependentForm({
                   id="lastName"
                   value={personalInfo.lastName}
                   onChange={(e) => handlePersonalInfoChange("lastName", e.target.value)}
-                className={validationErrors?.lastName ? "border-red-500" : ""}
                 />
-              {validationErrors?.lastName && (
-                <p className="text-sm text-red-500 mt-1">{validationErrors.lastName}</p>
-              )}
               </div>
 
               <div>
@@ -239,11 +223,7 @@ export function DependentForm({
                   id="initials"
                   value={personalInfo.initials}
                   onChange={(e) => handlePersonalInfoChange("initials", e.target.value)}
-                className={validationErrors?.initials ? "border-red-500" : ""}
                 />
-              {validationErrors?.initials && (
-                <p className="text-sm text-red-500 mt-1">{validationErrors.initials}</p>
-              )}
               </div>
 
               <div>
@@ -251,20 +231,13 @@ export function DependentForm({
                 <DatePicker
                   selected={personalInfo.dateOfBirth}
                   onSelect={(date) => handlePersonalInfoChange("dateOfBirth", date)}
-                className={validationErrors?.dateOfBirth ? "border-red-500" : ""}
                 />
-              {validationErrors?.dateOfBirth && (
-                <p className="text-sm text-red-500 mt-1">{validationErrors.dateOfBirth}</p>
-              )}
               </div>
 
               <div>
                 <Label htmlFor="gender">Gender</Label>
-              <Select 
-                value={personalInfo.gender} 
-                onValueChange={(value) => handlePersonalInfoChange("gender", value)}
-              >
-                <SelectTrigger id="gender" className={validationErrors?.gender ? "border-red-500" : ""}>
+                <Select value={personalInfo.gender} onValueChange={(value) => handlePersonalInfoChange("gender", value)}>
+                  <SelectTrigger id="gender">
                     <SelectValue placeholder="Select gender" />
                   </SelectTrigger>
                   <SelectContent>
@@ -273,21 +246,15 @@ export function DependentForm({
                     <SelectItem value="Other">Other</SelectItem>
                   </SelectContent>
                 </Select>
-              {validationErrors?.gender && (
-                <p className="text-sm text-red-500 mt-1">{validationErrors.gender}</p>
-              )}
               </div>
 
               <div>
-              <Label htmlFor="relationshipToMainMember">Relationship</Label>
+                <Label htmlFor="relationshipToMainMember">Relationship</Label>
                 <Select 
                   value={personalInfo.relationshipToMainMember} 
                   onValueChange={(value) => handlePersonalInfoChange("relationshipToMainMember", value)}
                 >
-                <SelectTrigger 
-                  id="relationshipToMainMember" 
-                  className={validationErrors?.relationshipToMainMember ? "border-red-500" : ""}
-                >
+                  <SelectTrigger id="relationshipToMainMember">
                     <SelectValue placeholder="Select relationship" />
                   </SelectTrigger>
                   <SelectContent>
@@ -298,46 +265,34 @@ export function DependentForm({
                     <SelectItem value="Other">Other</SelectItem>
                   </SelectContent>
                 </Select>
-              {validationErrors?.relationshipToMainMember && (
-                <p className="text-sm text-red-500 mt-1">{validationErrors.relationshipToMainMember}</p>
-              )}
               </div>
 
               <div>
                 <Label htmlFor="nationality">Nationality</Label>
-              <Select 
-                  value={personalInfo.nationality}
-                onValueChange={(value) => handlePersonalInfoChange("nationality", value)}
-              >
-                <SelectTrigger id="nationality" className={validationErrors?.nationality ? "border-red-500" : ""}>
-                  <SelectValue placeholder="Select nationality" />
+                <Select value={personalInfo.nationality} onValueChange={(value) => handlePersonalInfoChange("nationality", value)}>
+                  <SelectTrigger id="nationality">
+                    <SelectValue placeholder="Select nationality" />
                   </SelectTrigger>
                   <SelectContent>
-                  <SelectItem value="South African">South African</SelectItem>
-                  <SelectItem value="Zimbabwean">Zimbabwean</SelectItem>
-                  <SelectItem value="Mozambican">Mozambican</SelectItem>
-                  <SelectItem value="Namibian">Namibian</SelectItem>
-                  <SelectItem value="Botswanan">Botswanan</SelectItem>
-                  <SelectItem value="Lesotho">Lesotho</SelectItem>
-                  <SelectItem value="Swazi">Swazi</SelectItem>
-                  <SelectItem value="Other">Other</SelectItem>
+                    <SelectItem value="South African">South African</SelectItem>
+                    <SelectItem value="Zimbabwean">Zimbabwean</SelectItem>
+                    <SelectItem value="Mozambican">Mozambican</SelectItem>
+                    <SelectItem value="Namibian">Namibian</SelectItem>
+                    <SelectItem value="Botswanan">Botswanan</SelectItem>
+                    <SelectItem value="Lesotho">Lesotho</SelectItem>
+                    <SelectItem value="Swazi">Swazi</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
                   </SelectContent>
                 </Select>
-              {validationErrors?.nationality && (
-                <p className="text-sm text-red-500 mt-1">{validationErrors.nationality}</p>
-              )}
               </div>
 
               <div>
-              <Label htmlFor="dependentStatus">Status</Label>
+                <Label htmlFor="dependentStatus">Status</Label>
                 <Select
                   value={personalInfo.dependentStatus}
                   onValueChange={(value: "Active" | "Inactive") => handlePersonalInfoChange("dependentStatus", value)}
                 >
-                <SelectTrigger 
-                  id="dependentStatus" 
-                  className={validationErrors?.dependentStatus ? "border-red-500" : ""}
-                >
+                  <SelectTrigger id="dependentStatus">
                     <SelectValue placeholder="Select status" />
                   </SelectTrigger>
                   <SelectContent>
@@ -345,64 +300,47 @@ export function DependentForm({
                     <SelectItem value="Inactive">Inactive</SelectItem>
                   </SelectContent>
                 </Select>
-              {validationErrors?.dependentStatus && (
-                <p className="text-sm text-red-500 mt-1">{validationErrors.dependentStatus}</p>
-              )}
-            </div>
-          </div>
-
-          {/* Contact Details Section */}
-          <div className="col-span-3 mt-6">
-            <h3 className="text-lg font-semibold mb-4">Contact Details</h3>
-            <div className="space-y-2">
-            {contactDetails.map((contact, index) => (
-                <div key={index} className="space-y-2">
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1">
-                <Select
-                  value={contact.type}
-                  onValueChange={(value: "Email" | "Phone Number") => handleContactDetailsChange(index, "type", value)}
-                >
-                        <SelectTrigger 
-                          className={`w-[180px] ${validationErrors?.[`contact${index}Type`] ? "border-red-500" : ""}`}
-                        >
-                    <SelectValue placeholder="Select contact type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Email">Email</SelectItem>
-                    <SelectItem value="Phone Number">Phone Number</SelectItem>
-                  </SelectContent>
-                </Select>
-                      {validationErrors?.[`contact${index}Type`] && (
-                        <p className="text-sm text-red-500 mt-1">{validationErrors[`contact${index}Type`]}</p>
-                      )}
-                    </div>
-                    <div className="flex-[2]">
-                <Input
-                  value={contact.value}
-                  onChange={(e) => handleContactDetailsChange(index, "value", e.target.value)}
-                        className={validationErrors?.[`contact${index}Value`] ? "border-red-500" : ""}
-                        placeholder={contact.type === "Email" ? "Enter email address" : "Enter phone number"}
-                      />
-                      {validationErrors?.[`contact${index}Value`] && (
-                        <p className="text-sm text-red-500 mt-1">{validationErrors[`contact${index}Value`]}</p>
-                      )}
-                    </div>
-                    <Button type="button" variant="destructive" size="sm" onClick={() => handleRemoveContact(index)}>
-                  Remove
-                </Button>
-                  </div>
               </div>
-            ))}
-              <Button id="Add Contact" type="button" onClick={handleAddContact} size="sm" className="mt-2">
-              Add Contact
-            </Button>
             </div>
-          </div>
+          </Card>
+        </TabsContent>
 
-          {/* Address Details Section */}
-          <div className="col-span-3 mt-6">
-            <h3 className="text-lg font-semibold mb-4">Address Details</h3>
+        <TabsContent value="contact-details">
+          <Card className="p-4">
+            <div className="space-y-2">
+              {contactDetails.map((contact, index) => (
+                <div key={index} className="flex items-center gap-3">
+                  <Select
+                    value={contact.type}
+                    onValueChange={(value: "Email" | "Phone Number") => handleContactDetailsChange(index, "type", value)}
+                  >
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="Select contact type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Email">Email</SelectItem>
+                      <SelectItem value="Phone Number">Phone Number</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={contact.value}
+                    onChange={(e) => handleContactDetailsChange(index, "value", e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button type="button" variant="destructive" size="sm" onClick={() => handleRemoveContact(index)}>
+                    Remove
+                  </Button>
+                </div>
+              ))}
+              <Button id="Add Contact" type="button" onClick={handleAddContact} size="sm" className="mt-2">
+                Add Contact
+              </Button>
+            </div>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="address-details">
+          <Card className="p-4">
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
                 <Label htmlFor="streetAddress">Street Address</Label>
@@ -410,11 +348,7 @@ export function DependentForm({
                   id="streetAddress"
                   value={addressDetails.streetAddress}
                   onChange={(e) => handleAddressDetailsChange("streetAddress", e.target.value)}
-                  className={validationErrors?.streetAddress ? "border-red-500" : ""}
                 />
-                {validationErrors?.streetAddress && (
-                  <p className="text-sm text-red-500 mt-1">{validationErrors.streetAddress}</p>
-                )}
               </div>
               <div>
                 <Label htmlFor="city">City</Label>
@@ -422,11 +356,7 @@ export function DependentForm({
                   id="city"
                   value={addressDetails.city}
                   onChange={(e) => handleAddressDetailsChange("city", e.target.value)}
-                  className={validationErrors?.city ? "border-red-500" : ""}
                 />
-                {validationErrors?.city && (
-                  <p className="text-sm text-red-500 mt-1">{validationErrors.city}</p>
-                )}
               </div>
               <div>
                 <Label htmlFor="stateProvince">State/Province</Label>
@@ -434,11 +364,7 @@ export function DependentForm({
                   id="stateProvince"
                   value={addressDetails.stateProvince}
                   onChange={(e) => handleAddressDetailsChange("stateProvince", e.target.value)}
-                  className={validationErrors?.stateProvince ? "border-red-500" : ""}
                 />
-                {validationErrors?.stateProvince && (
-                  <p className="text-sm text-red-500 mt-1">{validationErrors.stateProvince}</p>
-                )}
               </div>
               <div>
                 <Label htmlFor="postalCode">Postal Code</Label>
@@ -446,11 +372,7 @@ export function DependentForm({
                   id="postalCode"
                   value={addressDetails.postalCode}
                   onChange={(e) => handleAddressDetailsChange("postalCode", e.target.value)}
-                  className={validationErrors?.postalCode ? "border-red-500" : ""}
                 />
-                {validationErrors?.postalCode && (
-                  <p className="text-sm text-red-500 mt-1">{validationErrors.postalCode}</p>
-                )}
               </div>
               <div>
                 <Label htmlFor="country">Country</Label>
@@ -458,7 +380,7 @@ export function DependentForm({
                   value={addressDetails.country}
                   onValueChange={(value) => handleAddressDetailsChange("country", value)}
                 >
-                  <SelectTrigger id="country" className={validationErrors?.country ? "border-red-500" : ""}>
+                  <SelectTrigger id="country">
                     <SelectValue placeholder="Select country" />
                   </SelectTrigger>
                   <SelectContent>
@@ -466,14 +388,11 @@ export function DependentForm({
                     <SelectItem value="Other">Other</SelectItem>
                   </SelectContent>
                 </Select>
-                {validationErrors?.country && (
-                  <p className="text-sm text-red-500 mt-1">{validationErrors.country}</p>
-                )}
-              </div>
-            </div>
               </div>
             </div>
           </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 } 

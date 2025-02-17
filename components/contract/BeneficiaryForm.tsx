@@ -98,38 +98,26 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors }
     updateData({ ...data, contactDetails: updatedContacts })
   }
 
-  // Add function to get missing fields summary
-  const getMissingFieldsSummary = () => {
-    if (!errors) return null;
-    
-    const personalInfoMissing = Object.keys(errors).some(key => 
-      ['title', 'firstName', 'lastName', 'initials', 'dateOfBirth', 'gender', 
-       'relationshipToMainMember', 'nationality', 'idType', 'idNumber'].includes(key)
-    );
-    
-    const contactDetailsMissing = Object.keys(errors).some(key => 
-      key === 'contacts' || key.startsWith('contact')
-    );
-    
-    const addressDetailsMissing = Object.keys(errors).some(key => 
-      ['streetAddress', 'city', 'stateProvince', 'postalCode', 'country'].includes(key)
-    );
-
-    const missingTabs = [];
-    if (personalInfoMissing && activeTab !== 'personal-info') missingTabs.push('Personal Information');
-    if (contactDetailsMissing && activeTab !== 'contact-details') missingTabs.push('Contact Details');
-    if (addressDetailsMissing && activeTab !== 'address-details') missingTabs.push('Address Details');
-
-    return missingTabs.length > 0 ? (
-      <div className="mb-4 text-sm text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
-        Please complete required fields in: {missingTabs.join(', ')}
-      </div>
-    ) : null;
-  };
-
   return (
     <div className="space-y-4">
-      {errors && getMissingFieldsSummary()}
+      {errors && Object.keys(errors).length > 0 && (
+        <div className="text-sm text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
+          Please complete required fields in: {
+            ['Personal Information', 'Contact Details', 'Address Details'].filter(tab => {
+              if (tab === 'Personal Information' && Object.keys(errors).some(key => 
+                ['title', 'firstName', 'lastName', 'initials', 'dateOfBirth', 'gender', 
+                 'relationshipToMainMember', 'nationality', 'idType', 'idNumber'].includes(key)
+              )) return true;
+              if (tab === 'Contact Details' && (errors.contacts || Object.keys(errors).some(key => key.startsWith('contact')))) return true;
+              if (tab === 'Address Details' && Object.keys(errors).some(key => 
+                ['streetAddress', 'city', 'stateProvince', 'postalCode', 'country'].includes(key)
+              )) return true;
+              return false;
+            }).filter(tab => tab !== activeTab).join(', ')
+          }
+        </div>
+      )}
+
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="personal-info">Personal Information</TabsTrigger>

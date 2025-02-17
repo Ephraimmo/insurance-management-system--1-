@@ -14,7 +14,7 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   images: {
-    unoptimized: true,
+    domains: ['firebasestorage.googleapis.com'],
   },
   experimental: {
     webpackBuildWorker: true,
