@@ -296,3 +296,26 @@ export default function InsuranceManagementSystem() {
   )
 }
 
+export async function getStaticProps() {
+  try {
+    // Your data fetching logic
+    const data = await fetchData();
+    
+    return {
+      props: {
+        data,
+      },
+      // Consider adding revalidation
+      revalidate: 60
+    };
+  } catch (error) {
+    console.error('Error fetching data:', error);
+    return {
+      props: {
+        data: null,
+        error: 'Failed to fetch data'
+      }
+    };
+  }
+}
+
