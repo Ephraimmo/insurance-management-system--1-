@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app'
+import { initializeApp, getApps, getApp } from 'firebase/app'
 import { getFirestore } from 'firebase/firestore'
 import { getAuth } from 'firebase/auth'
 import { getStorage } from 'firebase/storage'
@@ -13,8 +13,10 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 }
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig)
+// Initialize Firebase only if it hasn't been initialized
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp()
+
+// Initialize services
 const db = getFirestore(app)
 const auth = getAuth(app)
 const storage = getStorage(app)
