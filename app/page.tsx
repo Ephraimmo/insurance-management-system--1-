@@ -1,5 +1,5 @@
-import { fetchData } from '../lib/data' // Update the import path
-import { InsuranceManagementSystemClient } from '../components/InsuranceManagementSystemClient'
+import { fetchData } from '@/lib/data'  // Use @ alias
+import { InsuranceManagementSystemClient } from './components/InsuranceManagementSystemClient'  // Use relative path from current directory
 
 // This is your new server component
 export default async function InsuranceManagementSystem() {
