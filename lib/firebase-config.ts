@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app'
-import { getAuth } from 'firebase/auth'
-import { getFirestore } from 'firebase/firestore'
+import { getAuth, Auth } from 'firebase/auth'
+import { getFirestore, Firestore } from 'firebase/firestore'
 
 const firebaseConfig = {
   apiKey: "AIzaSyDCXIw7LJkOXlF3a4MTZA3kA3Q46gARpWU",
@@ -12,11 +12,13 @@ const firebaseConfig = {
   databaseURL: "https://data-b93ed-default-rtdb.firebaseio.com",
 }
 
-// Initialize Firebase
-let firebaseApp: FirebaseApp;
+let firebaseApp: FirebaseApp | undefined;
+let auth: Auth | null = null;
+let db: Firestore | null = null;
 
 if (typeof window !== 'undefined') {
   try {
+    // Initialize Firebase
     if (!getApps().length) {
       firebaseApp = initializeApp(firebaseConfig);
       console.log('Firebase initialized successfully');
@@ -24,9 +26,14 @@ if (typeof window !== 'undefined') {
       firebaseApp = getApp();
       console.log('Firebase app already initialized');
     }
+
+    // Initialize Auth and Firestore
+    auth = getAuth(firebaseApp);
+    db = getFirestore(firebaseApp);
   } catch (error) {
     console.error('Error initializing Firebase:', error);
-    throw error;
+    // Don't throw the error, just log it
+    console.error('Firebase initialization failed. Some features may not work.');
   }
 } else {
   // Server-side initialization (if needed)
@@ -36,8 +43,5 @@ if (typeof window !== 'undefined') {
     firebaseApp = getApp();
   }
 }
-
-const auth = typeof window !== 'undefined' ? getAuth(firebaseApp) : null;
-const db = typeof window !== 'undefined' ? getFirestore(firebaseApp) : null;
 
 export { firebaseApp as app, auth, db }; 

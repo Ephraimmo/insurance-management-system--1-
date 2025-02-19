@@ -1,6 +1,8 @@
 import { 
   signInWithEmailAndPassword, 
   signOut,
+  Auth,
+  UserCredential
 } from "firebase/auth"
 import { 
   collection, 
@@ -26,6 +28,15 @@ interface AuthResponse {
 }
 
 export const loginWithEmail = async (email: string, password: string): Promise<AuthResponse> => {
+  if (!auth) {
+    console.error('Auth is not initialized')
+    return {
+      success: false,
+      role: '',
+      error: 'Authentication is not initialized'
+    }
+  }
+
   try {
     // First try to authenticate with Firebase Auth
     const userCredential = await signInWithEmailAndPassword(auth, email, password)
@@ -35,6 +46,15 @@ export const loginWithEmail = async (email: string, password: string): Promise<A
         success: false,
         role: '',
         error: 'Authentication failed'
+      }
+    }
+
+    if (!db) {
+      console.error('Firestore is not initialized')
+      return {
+        success: false,
+        role: '',
+        error: 'Database is not initialized'
       }
     }
 
@@ -87,6 +107,15 @@ export const loginWithEmail = async (email: string, password: string): Promise<A
 }
 
 export const loginWithUsername = async (username: string, password: string): Promise<AuthResponse> => {
+  if (!db) {
+    console.error('Firestore is not initialized')
+    return {
+      success: false,
+      role: '',
+      error: 'Database is not initialized'
+    }
+  }
+
   try {
     // Find user in Firestore
     const usersRef = collection(db, 'users')
@@ -135,6 +164,11 @@ export const loginWithUsername = async (username: string, password: string): Pro
 }
 
 export const logoutUser = async (): Promise<void> => {
+  if (!auth) {
+    console.error('Auth is not initialized')
+    return
+  }
+
   try {
     await signOut(auth)
   } catch (error) {
