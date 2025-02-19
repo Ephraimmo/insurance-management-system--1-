@@ -1,12 +1,24 @@
 'use client';
 
-import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app'
+import { initializeApp, getApps, getApp, FirebaseApp, FirebaseOptions } from 'firebase/app'
 import { getAuth, Auth } from 'firebase/auth'
 import { getFirestore, Firestore } from 'firebase/firestore'
 
+type FirebaseConfigKeys = 'apiKey' | 'authDomain' | 'projectId' | 'storageBucket' | 'messagingSenderId' | 'appId' | 'databaseURL';
+
+interface FirebaseConfig extends Record<FirebaseConfigKeys, string> {
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  storageBucket: string;
+  messagingSenderId: string;
+  appId: string;
+  databaseURL: string;
+}
+
 // Validate Firebase configuration
 const validateConfig = () => {
-  const config = {
+  const config: FirebaseConfig = {
     apiKey: "AIzaSyDCXIw7LJkOXlF3a4MTZA3kA3Q46gARpWU",
     authDomain: "data-b93ed.firebaseapp.com",
     projectId: "data-b93ed",
@@ -17,8 +29,8 @@ const validateConfig = () => {
   };
 
   // Check if all required fields are present
-  const requiredFields = ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
-  const missingFields = requiredFields.filter(field => !config[field]);
+  const requiredFields: FirebaseConfigKeys[] = ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'messagingSenderId', 'appId'];
+  const missingFields = requiredFields.filter((field) => !config[field]);
 
   if (missingFields.length > 0) {
     throw new Error(`Missing required Firebase configuration fields: ${missingFields.join(', ')}`);
