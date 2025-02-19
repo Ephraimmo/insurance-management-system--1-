@@ -1,3 +1,5 @@
+'use client';
+
 import { 
   signInWithEmailAndPassword, 
   signOut,
@@ -27,21 +29,50 @@ interface AuthResponse {
   error?: string
 }
 
+const handleAuthError = (error: any): AuthResponse => {
+  console.error('Login error:', error)
+  let errorMessage = 'Failed to login'
+  
+  if (error.code === 'auth/user-not-found') {
+    errorMessage = 'No user found with this email'
+  } else if (error.code === 'auth/wrong-password') {
+    errorMessage = 'Invalid password'
+  } else if (error.code === 'auth/invalid-email') {
+    errorMessage = 'Invalid email format'
+  } else if (error.code === 'auth/too-many-requests') {
+    errorMessage = 'Too many failed attempts. Please try again later'
+  } else if (error.code === 'auth/invalid-api-key') {
+    errorMessage = 'Authentication service is temporarily unavailable'
+  }
+
+  return {
+    success: false,
+    role: '',
+    error: errorMessage
+  }
+}
+
 export const loginWithEmail = async (email: string, password: string): Promise<AuthResponse> => {
-  if (!auth) {
-    console.error('Auth is not initialized')
+  if (typeof window === 'undefined') {
     return {
       success: false,
       role: '',
-      error: 'Authentication is not initialized'
+      error: 'Cannot login on server side'
+    }
+  }
+
+  if (!auth) {
+    return {
+      success: false,
+      role: '',
+      error: 'Authentication service is not available'
     }
   }
 
   try {
-    // First try to authenticate with Firebase Auth
     const userCredential = await signInWithEmailAndPassword(auth, email, password)
     
-    if (!userCredential.user) {
+    if (!userCredential.user || !db) {
       return {
         success: false,
         role: '',
@@ -49,22 +80,11 @@ export const loginWithEmail = async (email: string, password: string): Promise<A
       }
     }
 
-    if (!db) {
-      console.error('Firestore is not initialized')
-      return {
-        success: false,
-        role: '',
-        error: 'Database is not initialized'
-      }
-    }
-
-    // Check if user exists in Firestore
     const usersRef = collection(db, 'users')
     const q = query(usersRef, where('email', '==', email))
     const snapshot = await getDocs(q)
 
     if (snapshot.empty) {
-      // Create a new admin user in Firestore if they don't exist
       const userDoc = doc(usersRef)
       await setDoc(userDoc, {
         email,
@@ -79,45 +99,33 @@ export const loginWithEmail = async (email: string, password: string): Promise<A
     }
 
     const userData = snapshot.docs[0].data()
-    
     return {
       success: true,
       role: userData.role || 'Admin'
     }
   } catch (error: any) {
-    console.error('Login error:', error)
-    let errorMessage = 'Failed to login'
-    
-    if (error.code === 'auth/user-not-found') {
-      errorMessage = 'No user found with this email'
-    } else if (error.code === 'auth/wrong-password') {
-      errorMessage = 'Invalid password'
-    } else if (error.code === 'auth/invalid-email') {
-      errorMessage = 'Invalid email format'
-    } else if (error.code === 'auth/too-many-requests') {
-      errorMessage = 'Too many failed attempts. Please try again later'
-    }
-
-    return {
-      success: false,
-      role: '',
-      error: errorMessage
-    }
+    return handleAuthError(error)
   }
 }
 
 export const loginWithUsername = async (username: string, password: string): Promise<AuthResponse> => {
-  if (!db) {
-    console.error('Firestore is not initialized')
+  if (typeof window === 'undefined') {
     return {
       success: false,
       role: '',
-      error: 'Database is not initialized'
+      error: 'Cannot login on server side'
+    }
+  }
+
+  if (!db) {
+    return {
+      success: false,
+      role: '',
+      error: 'Database service is not available'
     }
   }
 
   try {
-    // Find user in Firestore
     const usersRef = collection(db, 'users')
     const q = query(usersRef, where('username', '==', username))
     const snapshot = await getDocs(q)
@@ -133,8 +141,6 @@ export const loginWithUsername = async (username: string, password: string): Pro
     const userDoc = snapshot.docs[0]
     const userData = userDoc.data()
 
-    // TODO: Implement proper password hashing
-    // For now, using direct comparison (NOT recommended for production)
     if (userData.password !== password) {
       return {
         success: false,
@@ -143,7 +149,6 @@ export const loginWithUsername = async (username: string, password: string): Pro
       }
     }
 
-    // Update last login timestamp
     await setDoc(doc(usersRef, userDoc.id), {
       ...userData,
       lastLogin: new Date()
@@ -164,8 +169,8 @@ export const loginWithUsername = async (username: string, password: string): Pro
 }
 
 export const logoutUser = async (): Promise<void> => {
-  if (!auth) {
-    console.error('Auth is not initialized')
+  if (typeof window === 'undefined' || !auth) {
+    console.error('Auth is not initialized or not on client side')
     return
   }
 
