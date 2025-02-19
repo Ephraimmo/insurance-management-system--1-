@@ -1,7 +1,6 @@
 import { 
   signInWithEmailAndPassword, 
   signOut,
-  getAuth 
 } from "firebase/auth"
 import { 
   collection, 
@@ -12,7 +11,7 @@ import {
   getDoc,
   setDoc
 } from "firebase/firestore"
-import { db } from "./FirebaseConfg"
+import { auth, db } from "@/lib/firebase-config"
 
 interface UserCredentials {
   username?: string
@@ -28,8 +27,6 @@ interface AuthResponse {
 
 export const loginWithEmail = async (email: string, password: string): Promise<AuthResponse> => {
   try {
-    const auth = getAuth()
-    
     // First try to authenticate with Firebase Auth
     const userCredential = await signInWithEmailAndPassword(auth, email, password)
     
@@ -139,7 +136,6 @@ export const loginWithUsername = async (username: string, password: string): Pro
 
 export const logoutUser = async (): Promise<void> => {
   try {
-    const auth = getAuth()
     await signOut(auth)
   } catch (error) {
     console.error('Logout error:', error)
