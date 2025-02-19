@@ -1,11 +1,11 @@
 'use client';
 
-import { initializeApp, getApps, getApp } from 'firebase/app'
+import { initializeApp, getApps, getApp, FirebaseOptions } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
-import { getFirestore } from 'firebase/firestore'
+import { getFirestore, initializeFirestore } from 'firebase/firestore'
 
 // Your web app's Firebase configuration
-const firebaseConfig = {
+const firebaseConfig: FirebaseOptions = {
   apiKey: "AIzaSyDCXIw7LJkOXlF3a4MTZA3kA3Q46gARpWU",
   authDomain: "data-b93ed.firebaseapp.com",
   projectId: "data-b93ed",
@@ -15,31 +15,41 @@ const firebaseConfig = {
   databaseURL: "https://data-b93ed-default-rtdb.firebaseio.com"
 };
 
-// Initialize Firebase
-function initializeFirebase() {
-  if (typeof window === 'undefined') {
-    return { auth: null, db: null };
-  }
+let app;
+let auth;
+let db;
 
-  let app;
-  if (!getApps().length) {
-    try {
+if (typeof window !== 'undefined') {
+  try {
+    if (!getApps().length) {
       app = initializeApp(firebaseConfig);
-      console.log('Firebase initialized successfully');
-    } catch (error) {
-      console.error('Error initializing Firebase:', error);
-      return { auth: null, db: null };
+      
+      // Initialize Firestore with memory cache enabled
+      db = initializeFirestore(app, {
+        experimentalForceLongPolling: true,
+        cacheSizeBytes: 1048576 // 1 MB
+      });
+      
+      auth = getAuth(app);
+      console.log('Firebase services initialized successfully');
+    } else {
+      app = getApp();
+      db = getFirestore(app);
+      auth = getAuth(app);
     }
-  } else {
-    app = getApp();
+  } catch (error) {
+    console.error('Firebase initialization error:', error);
+    // Initialize with default values if there's an error
+    if (!db) {
+      app = getApp();
+      db = getFirestore(app);
+    }
+    if (!auth) {
+      auth = getAuth(app);
+    }
   }
-
-  const auth = getAuth(app);
-  const db = getFirestore(app);
-
-  return { auth, db };
+} else {
+  console.log('Firebase initialization skipped on server side');
 }
-
-const { auth, db } = initializeFirebase();
 
 export { auth, db }; 
