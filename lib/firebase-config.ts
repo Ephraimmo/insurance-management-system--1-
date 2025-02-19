@@ -1,18 +1,8 @@
-import { initializeApp, getApps, getApp } from 'firebase/app'
+import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
 
-const productionConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-  databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
-}
-
-const developmentConfig = {
+const firebaseConfig = {
   apiKey: "AIzaSyDCXIw7LJkOXlF3a4MTZA3kA3Q46gARpWU",
   authDomain: "data-b93ed.firebaseapp.com",
   projectId: "data-b93ed",
@@ -22,35 +12,32 @@ const developmentConfig = {
   databaseURL: "https://data-b93ed-default-rtdb.firebaseio.com",
 }
 
-// Use development config if env variables are not set
-const firebaseConfig = Object.values(productionConfig).every(value => !value) 
-  ? developmentConfig 
-  : productionConfig
-
 // Initialize Firebase
-let app
-try {
-  if (!getApps().length) {
-    app = initializeApp(firebaseConfig)
-    console.log('Firebase initialized successfully')
-  } else {
-    app = getApp()
-    console.log('Firebase app already initialized')
+let firebaseApp: FirebaseApp;
+
+if (typeof window !== 'undefined') {
+  try {
+    if (!getApps().length) {
+      firebaseApp = initializeApp(firebaseConfig);
+      console.log('Firebase initialized successfully');
+    } else {
+      firebaseApp = getApp();
+      console.log('Firebase app already initialized');
+    }
+  } catch (error) {
+    console.error('Error initializing Firebase:', error);
+    throw error;
   }
-} catch (error) {
-  console.error('Error initializing Firebase:', error)
-  console.error('Firebase config:', {
-    apiKey: '**hidden**',
-    authDomain: firebaseConfig.authDomain,
-    projectId: firebaseConfig.projectId,
-    storageBucket: firebaseConfig.storageBucket,
-    messagingSenderId: firebaseConfig.messagingSenderId,
-    databaseURL: firebaseConfig.databaseURL,
-  })
-  throw error
+} else {
+  // Server-side initialization (if needed)
+  if (!getApps().length) {
+    firebaseApp = initializeApp(firebaseConfig);
+  } else {
+    firebaseApp = getApp();
+  }
 }
 
-const auth = getAuth(app)
-const db = getFirestore(app)
+const auth = typeof window !== 'undefined' ? getAuth(firebaseApp) : null;
+const db = typeof window !== 'undefined' ? getFirestore(firebaseApp) : null;
 
-export { app, auth, db } 
+export { firebaseApp as app, auth, db }; 
