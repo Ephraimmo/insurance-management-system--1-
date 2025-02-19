@@ -2,17 +2,7 @@ import { initializeApp, getApps, getApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
 
-interface FirebaseConfig {
-  apiKey: string | undefined
-  authDomain: string | undefined
-  projectId: string | undefined
-  storageBucket: string | undefined
-  messagingSenderId: string | undefined
-  appId: string | undefined
-  databaseURL: string | undefined
-}
-
-const firebaseConfig: FirebaseConfig = {
+const productionConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
@@ -22,44 +12,40 @@ const firebaseConfig: FirebaseConfig = {
   databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
 }
 
-// Add validation for required config values
-const requiredKeys = [
-  'apiKey',
-  'authDomain',
-  'projectId',
-  'storageBucket',
-  'messagingSenderId',
-  'appId'
-] as const
-
-type RequiredKey = typeof requiredKeys[number]
-
-// Check for missing configuration
-const missingKeys = requiredKeys.filter((key: RequiredKey) => !firebaseConfig[key])
-if (missingKeys.length > 0) {
-  console.error('Missing Firebase configuration keys:', missingKeys)
-  throw new Error(`Missing required Firebase configuration: ${missingKeys.join(', ')}`)
+const developmentConfig = {
+  apiKey: "AIzaSyDCXIw7LJkOXlF3a4MTZA3kA3Q46gARpWU",
+  authDomain: "data-b93ed.firebaseapp.com",
+  projectId: "data-b93ed",
+  storageBucket: "data-b93ed.appspot.com",
+  messagingSenderId: "218236841715",
+  appId: "1:218236841715:web:f34737d3fa3bc759701186",
+  databaseURL: "https://data-b93ed-default-rtdb.firebaseio.com",
 }
 
-// Initialize Firebase with type assertion since we've validated the config
+// Use development config if env variables are not set
+const firebaseConfig = Object.values(productionConfig).every(value => !value) 
+  ? developmentConfig 
+  : productionConfig
+
+// Initialize Firebase
 let app
 try {
-  const validConfig = {
-    apiKey: firebaseConfig.apiKey!,
-    authDomain: firebaseConfig.authDomain!,
-    projectId: firebaseConfig.projectId!,
-    storageBucket: firebaseConfig.storageBucket!,
-    messagingSenderId: firebaseConfig.messagingSenderId!,
-    appId: firebaseConfig.appId!,
-    databaseURL: firebaseConfig.databaseURL,
+  if (!getApps().length) {
+    app = initializeApp(firebaseConfig)
+    console.log('Firebase initialized successfully')
+  } else {
+    app = getApp()
+    console.log('Firebase app already initialized')
   }
-  app = !getApps().length ? initializeApp(validConfig) : getApp()
 } catch (error) {
   console.error('Error initializing Firebase:', error)
   console.error('Firebase config:', {
-    ...firebaseConfig,
-    apiKey: firebaseConfig.apiKey ? '**exists**' : '**missing**',
-    appId: firebaseConfig.appId ? '**exists**' : '**missing**'
+    apiKey: '**hidden**',
+    authDomain: firebaseConfig.authDomain,
+    projectId: firebaseConfig.projectId,
+    storageBucket: firebaseConfig.storageBucket,
+    messagingSenderId: firebaseConfig.messagingSenderId,
+    databaseURL: firebaseConfig.databaseURL,
   })
   throw error
 }
