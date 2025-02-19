@@ -4,7 +4,8 @@ import {
   signInWithEmailAndPassword, 
   signOut,
   Auth,
-  UserCredential
+  UserCredential,
+  getAuth
 } from "firebase/auth"
 import { 
   collection, 
@@ -13,9 +14,29 @@ import {
   getDocs,
   doc,
   getDoc,
-  setDoc
+  setDoc,
+  getFirestore
 } from "firebase/firestore"
-import { auth, db } from "@/lib/firebase-config"
+import { auth as globalAuth, db as globalDb } from "@/lib/firebase-config"
+import { getApp } from "firebase/app";
+
+const getFirebaseAuth = () => {
+  try {
+    return globalAuth || getAuth(getApp());
+  } catch (error) {
+    console.error('Error getting Firebase Auth:', error);
+    return null;
+  }
+};
+
+const getFirebaseDb = () => {
+  try {
+    return globalDb || getFirestore(getApp());
+  } catch (error) {
+    console.error('Error getting Firestore:', error);
+    return null;
+  }
+};
 
 interface UserCredentials {
   username?: string
@@ -30,27 +51,28 @@ interface AuthResponse {
 }
 
 const handleAuthError = (error: any): AuthResponse => {
-  console.error('Login error:', error)
-  let errorMessage = 'Failed to login'
+  console.error('Login error:', error);
+  let errorMessage = 'Failed to login';
   
   if (error.code === 'auth/user-not-found') {
-    errorMessage = 'No user found with this email'
+    errorMessage = 'No user found with this email';
   } else if (error.code === 'auth/wrong-password') {
-    errorMessage = 'Invalid password'
+    errorMessage = 'Invalid password';
   } else if (error.code === 'auth/invalid-email') {
-    errorMessage = 'Invalid email format'
+    errorMessage = 'Invalid email format';
   } else if (error.code === 'auth/too-many-requests') {
-    errorMessage = 'Too many failed attempts. Please try again later'
+    errorMessage = 'Too many failed attempts. Please try again later';
   } else if (error.code === 'auth/invalid-api-key') {
-    errorMessage = 'Authentication service is temporarily unavailable'
+    errorMessage = 'Authentication service is temporarily unavailable';
+    console.error('Invalid API key error. Configuration may be incorrect.');
   }
 
   return {
     success: false,
     role: '',
     error: errorMessage
-  }
-}
+  };
+};
 
 export const loginWithEmail = async (email: string, password: string): Promise<AuthResponse> => {
   if (typeof window === 'undefined') {
@@ -58,55 +80,63 @@ export const loginWithEmail = async (email: string, password: string): Promise<A
       success: false,
       role: '',
       error: 'Cannot login on server side'
-    }
+    };
   }
 
-  if (!auth) {
+  const auth = getFirebaseAuth();
+  const db = getFirebaseDb();
+
+  if (!auth || !db) {
+    console.error('Firebase services not available:', { auth: !!auth, db: !!db });
     return {
       success: false,
       role: '',
       error: 'Authentication service is not available'
-    }
+    };
   }
 
   try {
-    const userCredential = await signInWithEmailAndPassword(auth, email, password)
-    
-    if (!userCredential.user || !db) {
+    console.log('Attempting login with email...');
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    console.log('Email login successful');
+
+    if (!userCredential.user) {
       return {
         success: false,
         role: '',
         error: 'Authentication failed'
-      }
+      };
     }
 
-    const usersRef = collection(db, 'users')
-    const q = query(usersRef, where('email', '==', email))
-    const snapshot = await getDocs(q)
+    const usersRef = collection(db, 'users');
+    const q = query(usersRef, where('email', '==', email));
+    const snapshot = await getDocs(q);
 
     if (snapshot.empty) {
-      const userDoc = doc(usersRef)
+      console.log('Creating new admin user...');
+      const userDoc = doc(usersRef);
       await setDoc(userDoc, {
         email,
         role: 'Admin',
         createdAt: new Date()
-      })
+      });
       
       return {
         success: true,
         role: 'Admin'
-      }
+      };
     }
 
-    const userData = snapshot.docs[0].data()
+    const userData = snapshot.docs[0].data();
+    console.log('Login successful, role:', userData.role);
     return {
       success: true,
       role: userData.role || 'Admin'
-    }
+    };
   } catch (error: any) {
-    return handleAuthError(error)
+    return handleAuthError(error);
   }
-}
+};
 
 export const loginWithUsername = async (username: string, password: string): Promise<AuthResponse> => {
   if (typeof window === 'undefined') {
