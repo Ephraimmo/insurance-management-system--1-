@@ -62,18 +62,6 @@ function Calendar({
         IconLeft: ({ ...props }) => <ChevronLeft className="h-4 w-4" />,
         IconRight: ({ ...props }) => <ChevronRight className="h-4 w-4" />,
       }}
-      formatters={{
-        formatAria: formatDayAriaLabel
-      }}
-      modifiers={{
-        selected: (date) => {
-          if (!props.selected) return false;
-          return date.getTime() === props.selected.getTime();
-        }
-      }}
-      modifiersClassNames={{
-        selected: "rdp-day_selected"
-      }}
       {...props}
     />
   )

@@ -141,218 +141,220 @@ export function DependentForm({
 
   return (
     <div className="space-y-4">
-      {error && (
-        <div className="bg-red-50 text-red-600 p-4 rounded-md mb-4">
-          {error}
-        </div>
-      )}
-      
-      <Card className="p-4">
-        <div className="grid grid-cols-3 gap-3">
-          <div className="flex gap-3 col-span-3">
-            <div className="flex-1">
-              <Label htmlFor="type-of-id">Type of ID</Label>
-              <Select
-                value={personalInfo.idType}
-                onValueChange={(value: "South African ID" | "Passport") => handlePersonalInfoChange("idType", value)}
-              >
-                <SelectTrigger id="type-of-id" className={validationErrors?.idType ? "border-red-500" : ""}>
-                  <SelectValue placeholder="Select ID type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="South African ID">South African ID</SelectItem>
-                  <SelectItem value="Passport">Passport</SelectItem>
-                </SelectContent>
-              </Select>
-              {validationErrors?.idType && (
-                <p className="text-sm text-red-500 mt-1">{validationErrors.idType}</p>
-              )}
-            </div>
+      <Tabs defaultValue="personal" className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="personal">Personal Details</TabsTrigger>
+          <TabsTrigger value="contact">Contact Details</TabsTrigger>
+          <TabsTrigger value="address">Address Details</TabsTrigger>
+        </TabsList>
 
-            <div className="flex-1">
-              <Label htmlFor="idnumber/passportnumber">
-                ID Number / Passport Number
-                {personalInfo.idType === "South African ID" && (
-                  <span className="text-sm text-gray-500 ml-2">(13 digits)</span>
-                )}
-              </Label>
-              <Input
-                aria-label="idnumber/passportnumber"
-                value={personalInfo.idNumber}
-                onChange={(e) => handlePersonalInfoChange("idNumber", e.target.value)}
-                className={validationErrors?.idNumber || idValidationErrors.length > 0 ? "border-red-500" : ""}
-              />
-              {(validationErrors?.idNumber || idValidationErrors.length > 0) && (
-                <p className="text-sm text-red-500 mt-1">
-                  {validationErrors?.idNumber || idValidationErrors[0]}
-                </p>
-              )}
-            </div>
-          </div>
+        <TabsContent value="personal">
+          <Card className="p-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="flex gap-3 col-span-3">
+                <div className="flex-1">
+                  <Label htmlFor="type-of-id">Type of ID</Label>
+                  <Select
+                    value={personalInfo.idType}
+                    onValueChange={(value: "South African ID" | "Passport") => handlePersonalInfoChange("idType", value)}
+                  >
+                    <SelectTrigger id="type-of-id" className={validationErrors?.idType ? "border-red-500" : ""}>
+                      <SelectValue placeholder="Select ID type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="South African ID">South African ID</SelectItem>
+                      <SelectItem value="Passport">Passport</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {validationErrors?.idType && (
+                    <p className="text-sm text-red-500 mt-1">{validationErrors.idType}</p>
+                  )}
+                </div>
 
-          {personalInfo.idType === "South African ID" && idValidationErrors.length > 0 && (
-            <div className="col-span-3">
-              <Alert variant="destructive" className="mt-1">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  <ul className="list-disc pl-4">
+                <div className="flex-1">
+                  <Label htmlFor="id-input">
+                    ID Number / Passport Number
+                    {personalInfo.idType === "South African ID" && (
+                      <span className="text-sm text-gray-500 ml-2">(13 digits)</span>
+                    )}
+                  </Label>
+                  <Input
+                    id="id-input"
+                    data-testid="id-input"
+                    aria-label="ID Number / Passport Number"
+                    value={personalInfo.idNumber}
+                    onChange={(e) => handlePersonalInfoChange("idNumber", e.target.value)}
+                    className={validationErrors?.idNumber || idValidationErrors.length > 0 ? "border-red-500" : ""}
+                  />
+                  {(validationErrors?.idNumber || idValidationErrors.length > 0) && (
+                    <p className="text-sm text-red-500 mt-1">
+                      {validationErrors?.idNumber || idValidationErrors[0]}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {personalInfo.idType === "South African ID" && idValidationErrors.length > 0 && (
+                <div className="col-span-3">
+                  <ul className="text-sm text-red-500 mt-1 pl-4 list-disc">
                     {idValidationErrors.map((error, index) => (
-                      <li key={index} className="text-sm">{error}</li>
+                      <li key={index}>{error}</li>
                     ))}
                   </ul>
-                </AlertDescription>
-              </Alert>
+                </div>
+              )}
+
+              {/* Personal Information Fields */}
+              <div className="col-span-3 grid grid-cols-3 gap-3">
+                  <div>
+                    <Label htmlFor="firstName">First Name</Label>
+                    <Input
+                      id="firstName"
+                      value={personalInfo.firstName}
+                      onChange={(e) => handlePersonalInfoChange("firstName", e.target.value)}
+                    className={validationErrors?.firstName ? "border-red-500" : ""}
+                    />
+                  {validationErrors?.firstName && (
+                    <p className="text-sm text-red-500 mt-1">{validationErrors.firstName}</p>
+                  )}
+                  </div>
+
+                  <div>
+                    <Label htmlFor="lastName">Last Name</Label>
+                    <Input
+                      id="lastName"
+                      value={personalInfo.lastName}
+                      onChange={(e) => handlePersonalInfoChange("lastName", e.target.value)}
+                    className={validationErrors?.lastName ? "border-red-500" : ""}
+                    />
+                  {validationErrors?.lastName && (
+                    <p className="text-sm text-red-500 mt-1">{validationErrors.lastName}</p>
+                  )}
+                  </div>
+
+                  <div>
+                    <Label htmlFor="initials">Initials</Label>
+                    <Input
+                      id="initials"
+                      value={personalInfo.initials}
+                      onChange={(e) => handlePersonalInfoChange("initials", e.target.value)}
+                    className={validationErrors?.initials ? "border-red-500" : ""}
+                    />
+                  {validationErrors?.initials && (
+                    <p className="text-sm text-red-500 mt-1">{validationErrors.initials}</p>
+                  )}
+                  </div>
+
+                  <div>
+                    <Label htmlFor="dateOfBirth">Date of Birth</Label>
+                    <DatePicker
+                      selected={personalInfo.dateOfBirth}
+                      onSelect={(date) => handlePersonalInfoChange("dateOfBirth", date)}
+                    className={validationErrors?.dateOfBirth ? "border-red-500" : ""}
+                    />
+                  {validationErrors?.dateOfBirth && (
+                    <p className="text-sm text-red-500 mt-1">{validationErrors.dateOfBirth}</p>
+                  )}
+                  </div>
+
+                  <div>
+                    <Label htmlFor="gender">Gender</Label>
+                  <Select 
+                    value={personalInfo.gender} 
+                    onValueChange={(value) => handlePersonalInfoChange("gender", value)}
+                  >
+                    <SelectTrigger id="gender" className={validationErrors?.gender ? "border-red-500" : ""}>
+                        <SelectValue placeholder="Select gender" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Male">Male</SelectItem>
+                        <SelectItem value="Female">Female</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  {validationErrors?.gender && (
+                    <p className="text-sm text-red-500 mt-1">{validationErrors.gender}</p>
+                  )}
+                  </div>
+
+                  <div>
+                  <Label htmlFor="relationshipToMainMember">Relationship</Label>
+                    <Select 
+                      value={personalInfo.relationshipToMainMember} 
+                      onValueChange={(value) => handlePersonalInfoChange("relationshipToMainMember", value)}
+                    >
+                    <SelectTrigger 
+                      id="relationshipToMainMember" 
+                      className={validationErrors?.relationshipToMainMember ? "border-red-500" : ""}
+                    >
+                        <SelectValue placeholder="Select relationship" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Spouse">Spouse</SelectItem>
+                        <SelectItem value="Child">Child</SelectItem>
+                        <SelectItem value="Parent">Parent</SelectItem>
+                        <SelectItem value="Sibling">Sibling</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  {validationErrors?.relationshipToMainMember && (
+                    <p className="text-sm text-red-500 mt-1">{validationErrors.relationshipToMainMember}</p>
+                  )}
+                  </div>
+
+                  <div>
+                    <Label htmlFor="nationality">Nationality</Label>
+                  <Select 
+                      value={personalInfo.nationality}
+                    onValueChange={(value) => handlePersonalInfoChange("nationality", value)}
+                  >
+                    <SelectTrigger id="nationality" className={validationErrors?.nationality ? "border-red-500" : ""}>
+                      <SelectValue placeholder="Select nationality" />
+                      </SelectTrigger>
+                      <SelectContent>
+                      <SelectItem value="South African">South African</SelectItem>
+                      <SelectItem value="Zimbabwean">Zimbabwean</SelectItem>
+                      <SelectItem value="Mozambican">Mozambican</SelectItem>
+                      <SelectItem value="Namibian">Namibian</SelectItem>
+                      <SelectItem value="Botswanan">Botswanan</SelectItem>
+                      <SelectItem value="Lesotho">Lesotho</SelectItem>
+                      <SelectItem value="Swazi">Swazi</SelectItem>
+                      <SelectItem value="Other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  {validationErrors?.nationality && (
+                    <p className="text-sm text-red-500 mt-1">{validationErrors.nationality}</p>
+                  )}
+                  </div>
+
+                  <div>
+                  <Label htmlFor="dependentStatus">Status</Label>
+                    <Select
+                      value={personalInfo.dependentStatus}
+                      onValueChange={(value: "Active" | "Inactive") => handlePersonalInfoChange("dependentStatus", value)}
+                    >
+                    <SelectTrigger 
+                      id="dependentStatus" 
+                      className={validationErrors?.dependentStatus ? "border-red-500" : ""}
+                    >
+                        <SelectValue placeholder="Select status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Active">Active</SelectItem>
+                        <SelectItem value="Inactive">Inactive</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  {validationErrors?.dependentStatus && (
+                    <p className="text-sm text-red-500 mt-1">{validationErrors.dependentStatus}</p>
+                  )}
+                </div>
+              </div>
             </div>
-          )}
+          </Card>
+        </TabsContent>
 
-          {/* Personal Information Fields */}
-          <div className="col-span-3 grid grid-cols-3 gap-3">
-              <div>
-                <Label htmlFor="firstName">First Name</Label>
-                <Input
-                  id="firstName"
-                  value={personalInfo.firstName}
-                  onChange={(e) => handlePersonalInfoChange("firstName", e.target.value)}
-                className={validationErrors?.firstName ? "border-red-500" : ""}
-                />
-              {validationErrors?.firstName && (
-                <p className="text-sm text-red-500 mt-1">{validationErrors.firstName}</p>
-              )}
-              </div>
-
-              <div>
-                <Label htmlFor="lastName">Last Name</Label>
-                <Input
-                  id="lastName"
-                  value={personalInfo.lastName}
-                  onChange={(e) => handlePersonalInfoChange("lastName", e.target.value)}
-                className={validationErrors?.lastName ? "border-red-500" : ""}
-                />
-              {validationErrors?.lastName && (
-                <p className="text-sm text-red-500 mt-1">{validationErrors.lastName}</p>
-              )}
-              </div>
-
-              <div>
-                <Label htmlFor="initials">Initials</Label>
-                <Input
-                  id="initials"
-                  value={personalInfo.initials}
-                  onChange={(e) => handlePersonalInfoChange("initials", e.target.value)}
-                className={validationErrors?.initials ? "border-red-500" : ""}
-                />
-              {validationErrors?.initials && (
-                <p className="text-sm text-red-500 mt-1">{validationErrors.initials}</p>
-              )}
-              </div>
-
-              <div>
-                <Label htmlFor="dateOfBirth">Date of Birth</Label>
-                <DatePicker
-                  selected={personalInfo.dateOfBirth}
-                  onSelect={(date) => handlePersonalInfoChange("dateOfBirth", date)}
-                className={validationErrors?.dateOfBirth ? "border-red-500" : ""}
-                />
-              {validationErrors?.dateOfBirth && (
-                <p className="text-sm text-red-500 mt-1">{validationErrors.dateOfBirth}</p>
-              )}
-              </div>
-
-              <div>
-                <Label htmlFor="gender">Gender</Label>
-              <Select 
-                value={personalInfo.gender} 
-                onValueChange={(value) => handlePersonalInfoChange("gender", value)}
-              >
-                <SelectTrigger id="gender" className={validationErrors?.gender ? "border-red-500" : ""}>
-                    <SelectValue placeholder="Select gender" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Male">Male</SelectItem>
-                    <SelectItem value="Female">Female</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-              {validationErrors?.gender && (
-                <p className="text-sm text-red-500 mt-1">{validationErrors.gender}</p>
-              )}
-              </div>
-
-              <div>
-              <Label htmlFor="relationshipToMainMember">Relationship</Label>
-                <Select 
-                  value={personalInfo.relationshipToMainMember} 
-                  onValueChange={(value) => handlePersonalInfoChange("relationshipToMainMember", value)}
-                >
-                <SelectTrigger 
-                  id="relationshipToMainMember" 
-                  className={validationErrors?.relationshipToMainMember ? "border-red-500" : ""}
-                >
-                    <SelectValue placeholder="Select relationship" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Spouse">Spouse</SelectItem>
-                    <SelectItem value="Child">Child</SelectItem>
-                    <SelectItem value="Parent">Parent</SelectItem>
-                    <SelectItem value="Sibling">Sibling</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-              {validationErrors?.relationshipToMainMember && (
-                <p className="text-sm text-red-500 mt-1">{validationErrors.relationshipToMainMember}</p>
-              )}
-              </div>
-
-              <div>
-                <Label htmlFor="nationality">Nationality</Label>
-              <Select 
-                  value={personalInfo.nationality}
-                onValueChange={(value) => handlePersonalInfoChange("nationality", value)}
-              >
-                <SelectTrigger id="nationality" className={validationErrors?.nationality ? "border-red-500" : ""}>
-                  <SelectValue placeholder="Select nationality" />
-                  </SelectTrigger>
-                  <SelectContent>
-                  <SelectItem value="South African">South African</SelectItem>
-                  <SelectItem value="Zimbabwean">Zimbabwean</SelectItem>
-                  <SelectItem value="Mozambican">Mozambican</SelectItem>
-                  <SelectItem value="Namibian">Namibian</SelectItem>
-                  <SelectItem value="Botswanan">Botswanan</SelectItem>
-                  <SelectItem value="Lesotho">Lesotho</SelectItem>
-                  <SelectItem value="Swazi">Swazi</SelectItem>
-                  <SelectItem value="Other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-              {validationErrors?.nationality && (
-                <p className="text-sm text-red-500 mt-1">{validationErrors.nationality}</p>
-              )}
-              </div>
-
-              <div>
-              <Label htmlFor="dependentStatus">Status</Label>
-                <Select
-                  value={personalInfo.dependentStatus}
-                  onValueChange={(value: "Active" | "Inactive") => handlePersonalInfoChange("dependentStatus", value)}
-                >
-                <SelectTrigger 
-                  id="dependentStatus" 
-                  className={validationErrors?.dependentStatus ? "border-red-500" : ""}
-                >
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Active">Active</SelectItem>
-                    <SelectItem value="Inactive">Inactive</SelectItem>
-                  </SelectContent>
-                </Select>
-              {validationErrors?.dependentStatus && (
-                <p className="text-sm text-red-500 mt-1">{validationErrors.dependentStatus}</p>
-              )}
-            </div>
-          </div>
-
-          {/* Contact Details Section */}
-          <div className="col-span-3 mt-6">
+        <TabsContent value="contact">
+          <Card className="p-4">
             <h3 className="text-lg font-semibold mb-4">Contact Details</h3>
             <div className="space-y-2">
             {contactDetails.map((contact, index) => (
@@ -398,10 +400,11 @@ export function DependentForm({
               Add Contact
             </Button>
             </div>
-          </div>
+          </Card>
+        </TabsContent>
 
-          {/* Address Details Section */}
-          <div className="col-span-3 mt-6">
+        <TabsContent value="address">
+          <Card className="p-4">
             <h3 className="text-lg font-semibold mb-4">Address Details</h3>
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
@@ -471,9 +474,9 @@ export function DependentForm({
                 )}
               </div>
             </div>
-              </div>
-            </div>
           </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 } 

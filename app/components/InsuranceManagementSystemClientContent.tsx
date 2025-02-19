@@ -35,8 +35,51 @@ export default function InsuranceManagementSystemClientContent() {
   const [isLoading, setIsLoading] = useState(false)
   const [userRole, setUserRole] = useState('')
 
-  // Rest of your component logic...
-  // Copy all the handlers and JSX from the original component
+  const handleLogout = async () => {
+    try {
+      await logoutUser()
+      setIsLoggedIn(false)
+      setUsername('')
+      setEmail('')
+      setPassword('')
+      setEnvironment('<User Default>')
+      setUserRole('')
+      setIsAdmin(false)
+    } catch (err) {
+      console.error('Logout error:', err)
+    }
+  }
+
+  const renderPage = () => {
+    switch (currentPage) {
+      case "dashboard":
+        return <Dashboard />
+      case "policies":
+        return <Policies userRole={userRole} />
+      case "claims":
+        return <Claims userRole={userRole} />
+      case "customers":
+        return <Customers />
+      case "reports":
+        return <Reports />
+      case "addContract":
+        return <AddContract userRole={userRole} />
+      case "searchContract":
+        return <SearchContract userRole={userRole} />
+      case "claimsProcessing":
+        return <ClaimsProcessing userRole={userRole} />
+      case "categoryMaintenance":
+        return <CategoryMaintenance />
+      case "featureMaintenance":
+        return <FeatureMaintenance />
+      case "payment":
+        return <Payment />
+      case "userManagement":
+        return <UserManagement />
+      default:
+        return <Dashboard />
+    }
+  }
 
   return !isLoggedIn ? (
     <div className="h-screen flex overflow-hidden">

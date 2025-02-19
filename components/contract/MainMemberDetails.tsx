@@ -5,14 +5,15 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { MainMemberForm } from "./MainMemberForm"
 import { Card } from "@/components/ui/card"
-import { collection, addDoc, doc, setDoc, query, where, getDocs } from "firebase/firestore"
+import { collection, addDoc, doc, setDoc, query, where, getDocs, updateDoc, getDoc } from "firebase/firestore"
 import { db } from "@/src/FirebaseConfg"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Badge } from "@/components/ui/badge"
-import { Loader2, AlertCircle, FileText, UserPlus, UserCog } from "lucide-react"
+import { Loader2, AlertCircle, FileText, UserPlus, UserCog, Pencil } from "lucide-react"
 import { validateSouthAfricanID } from "@/src/utils/idValidation"
+import { toast } from "@/components/ui/use-toast"
 
 type MainMemberData = {
   personalInfo: {
@@ -102,6 +103,9 @@ export function MainMemberDetails({
   const [existingMember, setExistingMember] = useState<MainMemberData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<ErrorState>(null)
+  const [editingMember, setEditingMember] = useState<MainMemberData | null>(null)
+  const [validationErrors, setValidationErrors] = useState<{ [key: string]: string } | null>(null)
+  const [isUpdating, setIsUpdating] = useState(false)
 
   const canEdit = userRole && userRole !== 'View Only'
 
@@ -208,14 +212,56 @@ export function MainMemberDetails({
     await saveToFirestore(formData)
   }
 
-  const handleUpdate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const validationErrors = validateMainMemberData(formData)
-    if (validationErrors) {
-      setError(validationErrors)
-      return
+  const handleEdit = (member: MainMemberData) => {
+    setEditingMember(member)
+    setIsEditDialogOpen(true)
+  }
+
+  const handleUpdate = async () => {
+    if (!editingMember || !mainMember.contractId) return
+
+    setIsUpdating(true)
+    try {
+      // Validate the data before updating
+      const errors = validateMainMemberData(editingMember)
+      if (errors) {
+        setValidationErrors(errors)
+        return
+      }
+
+      // Update in Firestore
+      const mainMemberRef = doc(db, 'Contracts', mainMember.contractId)
+      await updateDoc(mainMemberRef, {
+        mainMember: editingMember
+      })
+
+      // Update local state
+      updateMainMember({
+        ...editingMember,
+        contractNumber: mainMember.contractNumber,
+        contractId: mainMember.contractId
+      })
+      
+      // Close dialog and reset states
+      setIsEditDialogOpen(false)
+      setEditingMember(null)
+      setValidationErrors(null)
+      
+      // Show success message
+      toast({
+        title: "Success",
+        description: "Main member details updated successfully",
+      })
+    } catch (error) {
+      console.error('Error updating main member:', error)
+      toast({
+        title: "Error",
+        description: "Failed to update main member details. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsUpdating(false)
     }
-    await updateExistingMember(formData)
   }
 
   const saveToFirestore = async (data: MainMemberData) => {
@@ -282,73 +328,6 @@ export function MainMemberDetails({
     }
   }
 
-  const updateExistingMember = async (data: MainMemberData) => {
-    setSaving(true)
-    setError(null)
-    try {
-      // Update personal info in Members collection
-      const membersQuery = query(
-        collection(db, 'Members'),
-        where('id', '==', data.personalInfo.idNumber)
-      )
-      const memberSnapshot = await getDocs(membersQuery)
-      if (!memberSnapshot.empty) {
-        const memberDoc = memberSnapshot.docs[0]
-        await setDoc(doc(db, 'Members', memberDoc.id), {
-          ...data.personalInfo,
-          id: data.personalInfo.idNumber,
-          updatedAt: new Date()
-        }, { merge: true })
-
-        // Update contact details
-        const contactsQuery = query(
-          collection(db, 'Contacts'),
-          where('memberIdNumber', '==', data.personalInfo.idNumber)
-        )
-        const contactSnapshot = await getDocs(contactsQuery)
-        const updateContactPromises = contactSnapshot.docs.map((doc) => 
-          setDoc(doc.ref, {}, { merge: true })
-        )
-        // Add new contacts
-        const newContactPromises = data.contactDetails.map(contact =>
-          addDoc(collection(db, 'Contacts'), {
-            ...contact,
-            memberIdNumber: data.personalInfo.idNumber,
-            updatedAt: new Date()
-          })
-        )
-        await Promise.all([...updateContactPromises, ...newContactPromises])
-
-        // Update address details
-        const addressQuery = query(
-          collection(db, 'Address'),
-          where('memberIdNumber', '==', data.personalInfo.idNumber)
-        )
-        const addressSnapshot = await getDocs(addressQuery)
-        if (!addressSnapshot.empty) {
-          await setDoc(addressSnapshot.docs[0].ref, {
-            ...data.addressDetails,
-            updatedAt: new Date()
-          }, { merge: true })
-        }
-
-        // Update local state
-        updateMainMember({
-          ...data,
-          contractNumber: mainMember.contractNumber,
-          contractId: mainMember.contractId
-        })
-      }
-      
-      setIsEditDialogOpen(false)
-      setSaving(false)
-    } catch (error) {
-      console.error('Error updating member data:', error)
-      setError({ general: error instanceof Error ? error.message : 'Failed to update member data. Please try again.' })
-      setSaving(false)
-    }
-  }
-
   if (loading) {
     return (
       <div className="space-y-6">
@@ -386,10 +365,21 @@ export function MainMemberDetails({
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-            <div>
+        <div>
           <h2 className="text-2xl font-bold">Main Member Details</h2>
           <p className="text-sm text-gray-500">Add or manage main member information</p>
-            </div>
+        </div>
+        {canEdit && mainMember.personalInfo.firstName && (
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="gap-2"
+            onClick={() => handleEdit(mainMember)}
+          >
+            <Pencil className="h-4 w-4" />
+            Edit Main Member
+          </Button>
+        )}
         {!mainMember.personalInfo.firstName && !existingMember && !loading && (
           <TooltipProvider>
             <Tooltip>
@@ -468,7 +458,7 @@ export function MainMemberDetails({
                           </>
                         )}
                       </Button>
-            </div>
+                    </div>
                   </DialogContent>
                 </Dialog>
               </TooltipTrigger>
@@ -476,7 +466,7 @@ export function MainMemberDetails({
             </Tooltip>
           </TooltipProvider>
         )}
-          </div>
+      </div>
 
       <div className="space-y-4">
         <table className="w-full border-collapse">
@@ -506,89 +496,87 @@ export function MainMemberDetails({
                 </td>
                 <td className="p-4 text-right">
                   {canEdit && (
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Dialog 
-                            open={isEditDialogOpen} 
-                            onOpenChange={(open) => {
+                    <Dialog 
+                      open={isEditDialogOpen} 
+                      onOpenChange={(open) => {
+                        if (!saving) {
+                          setIsEditDialogOpen(open)
+                          if (!open) {
+                            setError(null)
+                          }
+                        }
+                      }}
+                    >
+                      <DialogTrigger asChild>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="gap-2"
+                          onClick={() => handleEdit(mainMember)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                          Edit
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent 
+                        className="max-w-4xl max-h-[90vh] overflow-y-auto"
+                        onPointerDownOutside={(e) => e.preventDefault()}
+                        onEscapeKeyDown={(e) => e.preventDefault()}
+                      >
+                        <DialogHeader>
+                          <DialogTitle className="flex items-center gap-2">
+                            <Pencil className="h-5 w-5" />
+                            Edit Main Member Details
+                            {saving && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
+                          </DialogTitle>
+                        </DialogHeader>
+                        {error && 'general' in error && (
+                          <Alert variant="destructive" className="mb-4">
+                            <AlertCircle className="h-4 w-4" />
+                            <AlertTitle>Error</AlertTitle>
+                            <AlertDescription>
+                              {error.general}
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                        <MainMemberForm
+                          data={mainMember}
+                          updateData={setFormData}
+                          errors={error || undefined}
+                        />
+                        <div className="flex justify-end space-x-2 mt-4">
+                          <Button 
+                            variant="outline" 
+                            onClick={() => {
                               if (!saving) {
-                                setIsEditDialogOpen(open)
-                                if (!open) {
-                                  setError(null)
-                                }
+                                setIsEditDialogOpen(false)
+                                setError(null)
                               }
                             }}
+                            disabled={saving}
                           >
-                            <DialogTrigger asChild>
-                              <Button variant="outline" size="sm" className="gap-2">
-                                <UserCog className="h-4 w-4" />
-                                Edit
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent 
-                              className="max-w-4xl max-h-[90vh] overflow-y-auto"
-                              onPointerDownOutside={(e) => e.preventDefault()}
-                              onEscapeKeyDown={(e) => e.preventDefault()}
-                            >
-                              <DialogHeader>
-                                <DialogTitle className="flex items-center gap-2">
-                                  <UserCog className="h-5 w-5" />
-                                  Edit Main Member Details
-                                  {saving && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
-                                </DialogTitle>
-                              </DialogHeader>
-                              {error && 'general' in error && (
-                                <Alert variant="destructive" className="mb-4">
-                                  <AlertCircle className="h-4 w-4" />
-                                  <AlertTitle>Error</AlertTitle>
-                                  <AlertDescription>
-                                    {error.general}
-                                  </AlertDescription>
-                                </Alert>
-                              )}
-                              <MainMemberForm
-                                data={mainMember}
-                                updateData={setFormData}
-                                errors={error || undefined}
-                              />
-                              <div className="flex justify-end space-x-2 mt-4">
-                                <Button 
-                                  variant="outline" 
-                                  onClick={() => {
-                                    if (!saving) {
-                                      setIsEditDialogOpen(false)
-                                      setError(null)
-                                    }
-                                  }}
-                                  disabled={saving}
-                                >
-                                  Cancel
-                                </Button>
-                                <Button 
-                                  onClick={handleUpdate}
-                                  disabled={saving}
-                                  className="gap-2"
-                                >
-                                  {saving ? (
-                                    <>
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                      Updating...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <UserCog className="h-4 w-4" />
-                                      Update
-                                    </>
-                                  )}
-                                </Button>
-                              </div>
-                            </DialogContent>
-                          </Dialog>
-                        </TooltipTrigger>
-                        <TooltipContent>Edit member details</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
+                            Cancel
+                          </Button>
+                          <Button 
+                            onClick={handleUpdate}
+                            disabled={saving}
+                            className="gap-2"
+                          >
+                            {saving ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                                Updating...
+                              </>
+                            ) : (
+                              <>
+                                <Pencil className="h-4 w-4" />
+                                Update
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
                   )}
                 </td>
               </tr>
@@ -599,15 +587,15 @@ export function MainMemberDetails({
                     <div className="flex flex-col items-center space-y-4">
                       <Loader2 className="h-8 w-8 animate-spin text-primary" />
                       <p className="text-sm text-gray-500">Loading...</p>
-            </div>
+                    </div>
                   ) : (
                     <div className="flex flex-col items-center space-y-4">
                       <UserPlus className="h-12 w-12 text-gray-300" />
                       <div className="text-center">
                         <p className="text-gray-500">No main member added yet</p>
                         <p className="text-sm text-gray-400">Click the "Add Main Member" button to get started</p>
-            </div>
-            </div>
+                      </div>
+                    </div>
                   )}
                 </td>
               </tr>

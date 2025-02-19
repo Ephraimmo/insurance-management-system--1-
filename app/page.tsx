@@ -252,7 +252,7 @@ export default function InsuranceManagementSystem() {
                   checked={isAdmin}
                   onCheckedChange={(checked) => setIsAdmin(checked as boolean)}
                 />
-                <Label htmlFor="Login as Admin" name="Login as Admin" className="text-sm">
+                <Label htmlFor="Login as Admin" id="Login as Admin" className="text-sm">
                   Login as Admin
                 </Label>
               </div>

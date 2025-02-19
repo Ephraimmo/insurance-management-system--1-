@@ -788,82 +788,92 @@ export function Claims({ userRole }: ClaimsProps) {
 
         <TabsContent value="deceased">
           <Card>
-            <CardHeader>
+            <CardHeader className="pb-4">
               <CardTitle>Deceased Information</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-6">
-                <div className="space-y-2">
-                  <Label htmlFor="memberSelect">Select Deceased Person</Label>
-                  <Select
-                    onValueChange={(value) => {
-                      if (!contractData) return;
+              <div className="grid gap-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="memberSelect">Select Deceased Person</Label>
+                    <Select
+                      onValueChange={(value) => {
+                        if (!contractData) return;
 
-                      if (value === "main") {
-                        // Auto-fill main member details
-                        const mainMember = contractData.mainMember.personalInfo;
-                        setDeceasedInfo({
-                          firstName: mainMember.firstName,
-                          lastName: mainMember.lastName,
-                          idNumber: mainMember.idNumber,
-                          dateOfDeath: "",
-                          causeOfDeath: "",
-                          placeOfDeath: "",
-                          relationship: "Main Policy Holder"
-                        });
-                        // Set formData for main member case
-                        setFormData(prev => ({
-                          ...prev,
-                          claimantName: contractData.beneficiaries[0]?.personalInfo.firstName + " " + contractData.beneficiaries[0]?.personalInfo.lastName,
-                          relationship: contractData.beneficiaries[0]?.personalInfo.relationshipToMainMember || "Beneficiary"
-                        }));
-                      } else {
-                        // Auto-fill dependent details
-                        const dependent = contractData.dependents.find(
-                          dep => dep.personalInfo.idNumber === value
-                        );
-                        if (dependent) {
-                          const personalInfo = dependent.personalInfo;
+                        if (value === "main") {
+                          // Auto-fill main member details
+                          const mainMember = contractData.mainMember.personalInfo;
                           setDeceasedInfo({
-                            firstName: personalInfo.firstName,
-                            lastName: personalInfo.lastName,
-                            idNumber: personalInfo.idNumber,
+                            firstName: mainMember.firstName,
+                            lastName: mainMember.lastName,
+                            idNumber: mainMember.idNumber,
                             dateOfDeath: "",
                             causeOfDeath: "",
                             placeOfDeath: "",
-                            relationship: personalInfo.relationshipToMainMember
+                            relationship: "Main Policy Holder"
                           });
-                          // Set formData for dependent case
+                          // Set formData for main member case
                           setFormData(prev => ({
                             ...prev,
-                            claimantName: contractData.mainMember.personalInfo.firstName + " " + contractData.mainMember.personalInfo.lastName,
-                            relationship: "Main Policy Holder"
+                            claimantName: contractData.beneficiaries[0]?.personalInfo.firstName + " " + contractData.beneficiaries[0]?.personalInfo.lastName,
+                            relationship: contractData.beneficiaries[0]?.personalInfo.relationshipToMainMember || "Beneficiary"
                           }));
+                        } else {
+                          // Auto-fill dependent details
+                          const dependent = contractData.dependents.find(
+                            dep => dep.personalInfo.idNumber === value
+                          );
+                          if (dependent) {
+                            const personalInfo = dependent.personalInfo;
+                            setDeceasedInfo({
+                              firstName: personalInfo.firstName,
+                              lastName: personalInfo.lastName,
+                              idNumber: personalInfo.idNumber,
+                              dateOfDeath: "",
+                              causeOfDeath: "",
+                              placeOfDeath: "",
+                              relationship: personalInfo.relationshipToMainMember
+                            });
+                            // Set formData for dependent case
+                            setFormData(prev => ({
+                              ...prev,
+                              claimantName: contractData.mainMember.personalInfo.firstName + " " + contractData.mainMember.personalInfo.lastName,
+                              relationship: "Main Policy Holder"
+                            }));
+                          }
                         }
-                      }
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select person" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="main">
-                        {contractData?.mainMember.personalInfo.firstName} {contractData?.mainMember.personalInfo.lastName} (Main Member)
-                      </SelectItem>
-                      {contractData?.dependents.map((dependent) => (
-                        <SelectItem 
-                          key={dependent.personalInfo.idNumber} 
-                          value={dependent.personalInfo.idNumber}
-                        >
-                          {dependent.personalInfo.firstName} {dependent.personalInfo.lastName} ({dependent.personalInfo.relationshipToMainMember})
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select person" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="main">
+                          {contractData?.mainMember.personalInfo.firstName} {contractData?.mainMember.personalInfo.lastName} (Main Member)
                         </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                        {contractData?.dependents.map((dependent) => (
+                          <SelectItem 
+                            key={dependent.personalInfo.idNumber} 
+                            value={dependent.personalInfo.idNumber}
+                          >
+                            {dependent.personalInfo.firstName} {dependent.personalInfo.lastName} ({dependent.personalInfo.relationshipToMainMember})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="relationship">Relationship to Policy Holder</Label>
+                    <Input
+                      id="relationship"
+                      value={deceasedInfo.relationship}
+                      disabled
+                    />
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
                     <Label htmlFor="firstName">First Name</Label>
                     <Input
                       id="firstName"
@@ -873,7 +883,7 @@ export function Claims({ userRole }: ClaimsProps) {
                       disabled
                     />
                   </div>
-                  <div className="space-y-2">
+                  <div>
                     <Label htmlFor="lastName">Last Name</Label>
                     <Input
                       id="lastName"
@@ -883,10 +893,7 @@ export function Claims({ userRole }: ClaimsProps) {
                       disabled
                     />
                   </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
+                  <div>
                     <Label htmlFor="idNumber">ID Number</Label>
                     <Input
                       id="idNumber"
@@ -896,7 +903,7 @@ export function Claims({ userRole }: ClaimsProps) {
                       disabled
                     />
                   </div>
-                  <div className="space-y-2">
+                  <div>
                     <Label htmlFor="dateOfDeath">Date of Death</Label>
                     <Input
                       id="dateOfDeath"
@@ -905,38 +912,39 @@ export function Claims({ userRole }: ClaimsProps) {
                       onChange={(e) => setDeceasedInfo(prev => ({ ...prev, dateOfDeath: e.target.value }))}
                     />
                   </div>
+                  <div>
+                    <Label htmlFor="causeOfDeath">Cause of Death</Label>
+                    <Select
+                      value={deceasedInfo.causeOfDeath}
+                      onValueChange={(value) => setDeceasedInfo(prev => ({ ...prev, causeOfDeath: value }))}
+                    >
+                      <SelectTrigger id="causeOfDeath">
+                        <SelectValue placeholder="Select cause" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Natural Causes">Natural Causes</SelectItem>
+                        <SelectItem value="Heart Disease">Heart Disease</SelectItem>
+                        <SelectItem value="Cancer">Cancer</SelectItem>
+                        <SelectItem value="Respiratory Disease">Respiratory Disease</SelectItem>
+                        <SelectItem value="Stroke">Stroke</SelectItem>
+                        <SelectItem value="Accident">Accident</SelectItem>
+                        <SelectItem value="COVID-19">COVID-19</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="placeOfDeath">Place of Death</Label>
+                    <Input
+                      id="placeOfDeath"
+                      value={deceasedInfo.placeOfDeath}
+                      onChange={(e) => setDeceasedInfo(prev => ({ ...prev, placeOfDeath: e.target.value }))}
+                      placeholder="Enter place"
+                    />
+                  </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="causeOfDeath">Cause of Death</Label>
-                  <Input
-                    id="causeOfDeath"
-                    value={deceasedInfo.causeOfDeath}
-                    onChange={(e) => setDeceasedInfo(prev => ({ ...prev, causeOfDeath: e.target.value }))}
-                    placeholder="Enter cause of death"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="placeOfDeath">Place of Death</Label>
-                  <Input
-                    id="placeOfDeath"
-                    value={deceasedInfo.placeOfDeath}
-                    onChange={(e) => setDeceasedInfo(prev => ({ ...prev, placeOfDeath: e.target.value }))}
-                    placeholder="Enter place of death"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="relationship">Relationship to Policy Holder</Label>
-                  <Input
-                    id="relationship"
-                    value={deceasedInfo.relationship}
-                    disabled
-                  />
-                </div>
-
-                <Alert>
+                <Alert className="mt-2">
                   <AlertCircle className="h-4 w-4" />
                   <AlertTitle>Important</AlertTitle>
                   <AlertDescription>
@@ -959,23 +967,22 @@ export function Claims({ userRole }: ClaimsProps) {
 
         <TabsContent value="bank-details">
           <Card>
-            <CardHeader>
+            <CardHeader className="pb-4">
               <CardTitle>Bank Details</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-6">
-                <div className="space-y-2">
-                  <Label>Account Holder Name</Label>
-                  <Input
-                    value={formData.accountHolder || (deceasedInfo.relationship === "Main Policy Holder" 
-                      ? contractData?.beneficiaries[0]?.personalInfo.firstName + " " + contractData?.beneficiaries[0]?.personalInfo.lastName
-                      : contractData?.mainMember.personalInfo.firstName + " " + contractData?.mainMember.personalInfo.lastName)}
-                    disabled
-                  />
-                </div>
-
+              <div className="grid gap-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
+                  <div>
+                    <Label>Account Holder Name</Label>
+                    <Input
+                      value={formData.accountHolder || (deceasedInfo.relationship === "Main Policy Holder" 
+                        ? contractData?.beneficiaries[0]?.personalInfo.firstName + " " + contractData?.beneficiaries[0]?.personalInfo.lastName
+                        : contractData?.mainMember.personalInfo.firstName + " " + contractData?.mainMember.personalInfo.lastName)}
+                      disabled
+                    />
+                  </div>
+                  <div>
                     <Label>Bank Name</Label>
                     <Select
                       onValueChange={(value) => setFormData(prev => ({ ...prev, bankName: value }))}
@@ -992,8 +999,10 @@ export function Claims({ userRole }: ClaimsProps) {
                       </SelectContent>
                     </Select>
                   </div>
+                </div>
 
-                  <div className="space-y-2">
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
                     <Label>Account Type</Label>
                     <Select
                       onValueChange={(value) => setFormData(prev => ({ ...prev, accountType: value }))}
@@ -1008,92 +1017,70 @@ export function Claims({ userRole }: ClaimsProps) {
                       </SelectContent>
                     </Select>
                   </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Account Number</Label>
-                  <Input
-                    placeholder="Enter account number"
-                    value={formData.accountNumber}
-                    onChange={(e) => setFormData(prev => ({ ...prev, accountNumber: e.target.value }))}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Branch Code</Label>
-                  <Input
-                    placeholder="Enter branch code"
-                    value={formData.branchCode}
-                    onChange={(e) => setFormData(prev => ({ ...prev, branchCode: e.target.value }))}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="flex items-center gap-2">
-                    Bank Statement
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="text-sm text-muted-foreground">
-                            (Required)
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Upload a recent bank statement - this is required</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </Label>
-                  <div className="flex items-center gap-4">
+                  <div>
+                    <Label>Account Number</Label>
                     <Input
-                      type="file"
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      className="hidden"
-                      id="bank-statement-upload"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0]
-                        if (file) handleFileUpload(file, "Bank Statement")
-                      }}
+                      value={formData.accountNumber}
+                      onChange={(e) => setFormData(prev => ({ ...prev, accountNumber: e.target.value }))}
+                      placeholder="Enter account number"
                     />
-                    <Button
-                      type="button"
-                      variant={documents.some(doc => doc.type === "Bank Statement") ? "outline" : "secondary"}
-                      onClick={() => document.getElementById('bank-statement-upload')?.click()}
-                      className="flex items-center gap-2"
-                    >
-                      <Upload className="h-4 w-4" />
-                      {documents.some(doc => doc.type === "Bank Statement") ? 'Change Bank Statement' : 'Upload Bank Statement *'}
-                    </Button>
+                  </div>
+                  <div>
+                    <Label>Branch Code</Label>
+                    <Input
+                      value={formData.branchCode}
+                      onChange={(e) => setFormData(prev => ({ ...prev, branchCode: e.target.value }))}
+                      placeholder="Enter branch code"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <Label>Bank Statement</Label>
+                    <div className="mt-2">
+                      <Input
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            handleFileUpload(file, "Bank Statement");
+                          }
+                        }}
+                        disabled={documents.some(doc => doc.type === "Bank Statement" && doc.status === "completed")}
+                      />
+                    </div>
                     {documents.some(doc => doc.type === "Bank Statement" && doc.status === "completed") && (
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 mt-2">
                         <CheckCircle2 className="h-4 w-4 text-green-500" />
                         <span className="text-sm text-muted-foreground">Bank Statement uploaded</span>
                       </div>
                     )}
                     {documents.some(doc => doc.type === "Bank Statement" && doc.status === "uploading") && (
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 mt-2">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         <span className="text-sm text-muted-foreground">Uploading...</span>
                       </div>
                     )}
                   </div>
-                </div>
 
-                <Alert>
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>Important</AlertTitle>
-                  <AlertDescription>
-                    Please ensure all banking details are accurate. Incorrect details may delay claim payment.
-                  </AlertDescription>
-                </Alert>
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Important</AlertTitle>
+                    <AlertDescription>
+                      Please ensure all banking details are accurate. Incorrect details may delay claim payment.
+                    </AlertDescription>
+                  </Alert>
 
-                <div className="flex justify-end gap-4">
-                  <Button variant="outline" onClick={() => setActiveTab("deceased")}>
-                    Back
-                  </Button>
-                  <Button onClick={() => setActiveTab("documents")}>
-                    Next
-                  </Button>
+                  <div className="flex justify-end gap-4">
+                    <Button variant="outline" onClick={() => setActiveTab("deceased")}>
+                      Back
+                    </Button>
+                    <Button onClick={() => setActiveTab("documents")}>
+                      Next
+                    </Button>
+                  </div>
                 </div>
               </div>
             </CardContent>

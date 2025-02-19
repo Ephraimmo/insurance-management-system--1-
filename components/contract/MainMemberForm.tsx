@@ -271,14 +271,16 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
                 </div>
 
                 <div className="flex-1">
-                  <Label htmlFor="idnumber">
+                  <Label htmlFor="id-input">
                     ID Number / Passport Number
                     {personalInfo.idType === "South African ID" && (
                       <span className="text-sm text-gray-500 ml-2">(13 digits)</span>
                     )}
                   </Label>
                   <Input
-                    id="idnumber"
+                    id="id-input"
+                    data-testid="id-input"
+                    aria-label="ID Number / Passport Number"
                     value={personalInfo.idNumber}
                     onChange={(e) => handlePersonalInfoChange("idNumber", e.target.value)}
                     className={errors?.idNumber ? "border-red-500" : ""}

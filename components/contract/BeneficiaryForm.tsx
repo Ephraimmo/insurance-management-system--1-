@@ -13,11 +13,15 @@ import { validateSouthAfricanID } from "@/src/utils/idValidation"
 import { AlertCircle } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
+type ValidationErrors = { [key: string]: string } | null
+type TabId = "personal-info" | "contact-details" | "address-details"
+
 type BeneficiaryFormProps = {
   data: BeneficiaryData
   updateData: (data: BeneficiaryData) => void
   mainMemberIdNumber?: string
-  errors?: { [key: string]: string } | null
+  errors?: ValidationErrors
+  onTabChange?: (tab: TabId) => void
 }
 
 type CateringOptionsProps = {
@@ -25,7 +29,7 @@ type CateringOptionsProps = {
   onChange: (options: string[]) => void
 }
 
-export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors }: BeneficiaryFormProps) {
+export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors, onTabChange }: BeneficiaryFormProps) {
   const [personalInfo, setPersonalInfo] = useState(data.personalInfo)
   const [contactDetails, setContactDetails] = useState(data.contactDetails)
   const [addressDetails, setAddressDetails] = useState(data.addressDetails)
@@ -98,13 +102,13 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors }
     updateData({ ...data, contactDetails: updatedContacts })
   }
 
-  // Add function to get missing fields summary
+  // Add function to check missing fields in each tab
   const getMissingFieldsSummary = () => {
     if (!errors) return null;
     
     const personalInfoMissing = Object.keys(errors).some(key => 
       ['title', 'firstName', 'lastName', 'initials', 'dateOfBirth', 'gender', 
-       'relationshipToMainMember', 'nationality', 'idType', 'idNumber'].includes(key)
+       'language', 'maritalStatus', 'nationality', 'idType', 'idNumber'].includes(key)
     );
     
     const contactDetailsMissing = Object.keys(errors).some(key => 
@@ -130,9 +134,13 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors }
   return (
     <div className="space-y-4">
       {errors && getMissingFieldsSummary()}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      <Tabs 
+        defaultValue="personal-info" 
+        className="w-full"
+        onValueChange={(value) => onTabChange?.(value as TabId)}
+      >
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="personal-info">Personal Information</TabsTrigger>
+          <TabsTrigger value="personal-info">Personal Details</TabsTrigger>
           <TabsTrigger value="contact-details">Contact Details</TabsTrigger>
           <TabsTrigger value="address-details">Address Details</TabsTrigger>
         </TabsList>
@@ -164,15 +172,16 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors }
                 </div>
 
                 <div className="flex-1">
-                  <Label htmlFor="idnumber/passportnumber">
+                  <Label htmlFor="id-input">
                     ID Number / Passport Number
                     {personalInfo.idType === "South African ID" && (
                       <span className="text-sm text-gray-500 ml-2">(13 digits)</span>
                     )}
                   </Label>
                   <Input
-                    id="idnumber/passportnumber"
-                    aria-label="idnumber/passportnumber"
+                    id="id-input"
+                    data-testid="id-input"
+                    aria-label="ID Number / Passport Number"
                     value={personalInfo.idNumber}
                     onChange={(e) => handlePersonalInfoChange("idNumber", e.target.value)}
                     className={errors?.idNumber ? "border-red-500" : ""}

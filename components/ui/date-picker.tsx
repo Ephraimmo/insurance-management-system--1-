@@ -20,14 +20,12 @@ interface DatePickerProps {
 }
 
 export function DatePicker({ selected, onSelect, id, className }: DatePickerProps) {
-  const [isOpen, setIsOpen] = React.useState(false);
+  const [isOpen, setIsOpen] = React.useState(false)
 
-  // Handle programmatic updates
-  React.useEffect(() => {
-    if (selected) {
-      setIsOpen(false); // Close the calendar if date is set programmatically
-    }
-  }, [selected]);
+  const handleSelect = (date: Date | undefined) => {
+    onSelect(date ?? null)
+    setIsOpen(false)
+  }
 
   return (
     <div className={className}>
@@ -40,42 +38,17 @@ export function DatePicker({ selected, onSelect, id, className }: DatePickerProp
               "w-full justify-start text-left font-normal",
               !selected && "text-muted-foreground"
             )}
-            role="combobox"
-            aria-expanded={isOpen}
-            aria-haspopup="dialog"
-            aria-label="Date of Birth"
           >
             <CalendarIcon className="mr-2 h-4 w-4" />
             {selected ? format(selected, "dd/MM/yyyy") : "Pick a date"}
           </Button>
         </PopoverTrigger>
-        <PopoverContent 
-          className="w-auto p-0" 
-          align="start"
-          role="dialog"
-          aria-label="Choose date"
-        >
+        <PopoverContent className="w-auto p-0" align="start">
           <Calendar
             mode="single"
-            selected={selected}
-            onSelect={(date) => {
-              onSelect(date);
-              setIsOpen(false);
-            }}
+            selected={selected || undefined}
+            onSelect={handleSelect}
             initialFocus
-            className="rdp"
-            fromDate={new Date(1900, 0, 1)}
-            toDate={new Date(2100, 11, 31)}
-            formatters={{
-              formatDay: (date) => {
-                const formattedDate = format(date, "yyyy-MM-dd");
-                return (
-                  <div data-date={formattedDate}>
-                    {date.getDate()}
-                  </div>
-                );
-              }
-            }}
           />
         </PopoverContent>
       </Popover>

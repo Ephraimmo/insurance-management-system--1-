@@ -554,6 +554,7 @@ export function AddContract({ userRole }: AddContractProps) {
                 policiesId: contractData.policiesDetails.policiesId
               }}
               selectedCateringOptions={contractData.cateringOptions}
+              userRole={userRole}
             />
           </Card>
         </TabsContent>

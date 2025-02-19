@@ -19,6 +19,8 @@ import { db } from "@/src/FirebaseConfg"
 
 type ValidationErrors = { [key: string]: string } | null;
 type MessageError = ReactNode | null;
+type TabId = "personal-info" | "contact-details" | "address-details";
+type ErrorsByTab = Record<TabId, string[]>;
 
 export type BeneficiaryData = {
   id?: string
@@ -213,126 +215,104 @@ const validateBeneficiaryPercentage = async (
 }
 
 const validateBeneficiaryData = (data: BeneficiaryData, existingBeneficiaries: BeneficiaryData[]): string[] => {
-  const errors: string[] = [];
+  const errors: string[] = []
 
-  // Personal Information Validation
-  if (!data.personalInfo.title?.trim()) errors.push("Title is required");
+  // Personal Info Validation
+  if (!data.personalInfo.title?.trim()) errors.push("Title: Title is required")
+  if (!data.personalInfo.firstName?.trim()) errors.push("First Name: First name is required")
+  if (!data.personalInfo.lastName?.trim()) errors.push("Last Name: Last name is required")
+  if (!data.personalInfo.initials?.trim()) errors.push("Initials: Initials are required")
+  if (!data.personalInfo.dateOfBirth) errors.push("Date of Birth: Date of birth is required")
+  if (!data.personalInfo.gender?.trim()) errors.push("Gender: Gender is required")
+  if (!data.personalInfo.relationshipToMainMember?.trim()) errors.push("Relationship: Relationship to main member is required")
+  if (!data.personalInfo.nationality?.trim()) errors.push("Nationality: Nationality is required")
+  if (!data.personalInfo.idType?.trim()) errors.push("Type of ID: ID type is required")
+  if (!data.personalInfo.idNumber?.trim()) errors.push("ID Number: ID number is required")
   
-  // First Name validation
-  if (!data.personalInfo.firstName?.trim()) {
-    errors.push("First Name: Please enter your first name");
-  } else if (data.personalInfo.firstName.length < 2) {
-    errors.push("First Name: Must be at least 2 characters long");
-  }
-
-  // Last Name validation
-  if (!data.personalInfo.lastName?.trim()) {
-    errors.push("Last Name: Please enter your last name");
-  } else if (data.personalInfo.lastName.length < 2) {
-    errors.push("Last Name: Must be at least 2 characters long");
-  }
-
-  // Initials validation
-  if (!data.personalInfo.initials?.trim()) {
-    errors.push("Initials: Please enter your initials");
-  } else if (!/^[A-Z]+$/.test(data.personalInfo.initials.trim())) {
-    errors.push("Initials: Must contain only capital letters");
-  }
-
-  // Date of Birth validation
-  if (!data.personalInfo.dateOfBirth) {
-    errors.push("Date of Birth: Please select your date of birth");
-  } else {
-    const today = new Date();
-    const birthDate = new Date(data.personalInfo.dateOfBirth);
-    if (birthDate > today) {
-      errors.push("Date of Birth: Cannot be a future date");
-    }
-  }
-
-  if (!data.personalInfo.gender?.trim()) errors.push("Gender is required");
-  if (!data.personalInfo.relationshipToMainMember?.trim()) errors.push("Relationship to Main Member is required");
-  if (!data.personalInfo.nationality?.trim()) errors.push("Nationality is required");
-  
-  // ID Type and Number validation
-  if (!data.personalInfo.idType?.trim()) {
-    errors.push("Type of ID is required");
-  }
-  if (!data.personalInfo.idNumber?.trim()) {
-    errors.push("ID Number / Passport Number: Please enter your ID number");
-  } else if (data.personalInfo.idType === "South African ID") {
-    if (!/^\d{13}$/.test(data.personalInfo.idNumber.trim())) {
-      errors.push("ID Number: Must be exactly 13 digits for South African ID");
-    }
-  } else if (data.personalInfo.idType === "Passport") {
-    if (data.personalInfo.idNumber.length < 6) {
-      errors.push("Passport Number: Must be at least 6 characters long");
-    }
-  }
-
-  // Check for duplicate ID numbers
-  if (existingBeneficiaries.some(b => 
-    b.personalInfo.idNumber === data.personalInfo.idNumber)) {
-    errors.push("ID Number / Passport Number: A beneficiary with this ID number already exists");
-  }
-
   // Validate beneficiary percentage
-  if (data.personalInfo.beneficiaryPercentage < 1 || 
-      data.personalInfo.beneficiaryPercentage > 100) {
-    errors.push("Beneficiary percentage must be between 1 and 100");
-  }
-
-  // Calculate total percentage including new beneficiary
-  const totalPercentage = existingBeneficiaries.reduce(
-    (sum, ben) => sum + ben.personalInfo.beneficiaryPercentage,
-    0
-  ) + data.personalInfo.beneficiaryPercentage;
-
-  if (totalPercentage > 100) {
-    errors.push(`Total beneficiary percentage cannot exceed 100%. Current total: ${totalPercentage}%`);
+  const percentage = data.personalInfo.beneficiaryPercentage
+  if (typeof percentage !== 'number' || percentage < 0 || percentage > 100) {
+    errors.push("Benefit Percentage: Must be between 0 and 100")
+  } else {
+    // Calculate total percentage including current beneficiary
+    const totalPercentage = existingBeneficiaries.reduce((sum, ben) => 
+      sum + (ben.personalInfo.beneficiaryPercentage || 0), 0) + percentage
+    
+    if (totalPercentage > 100) {
+      errors.push("Benefit Percentage: Total allocation cannot exceed 100%")
+    }
   }
 
   // Contact Details Validation
-  if (!data.contactDetails || data.contactDetails.length === 0) {
-    errors.push("At least one contact method is required");
+  if (data.contactDetails.length === 0) {
+    errors.push("Contact Details: At least one contact method is required")
   } else {
     data.contactDetails.forEach((contact, index) => {
-      if (!contact.type) errors.push(`Contact type is required for contact #${index + 1}`);
-      if (!contact.value?.trim()) errors.push(`Contact value is required for contact #${index + 1}`);
-      
-      // Email validation
-      if (contact.type === "Email" && contact.value) {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!contact.type?.trim()) {
+        errors.push(`Contact ${index + 1}: Contact type is required`)
+      }
+      if (!contact.value?.trim()) {
+        errors.push(`Contact ${index + 1}: Contact value is required`)
+      } else if (contact.type === "Email") {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
         if (!emailRegex.test(contact.value.trim())) {
-          errors.push(`Invalid email format for contact #${index + 1}`);
+          errors.push(`Contact ${index + 1}: Invalid email format`)
         }
-      }
-      
-      // Phone number validation
-      if (contact.type === "Phone Number" && contact.value) {
-        const phoneRegex = /^[0-9+\-\s()]{10,}$/;
+      } else if (contact.type === "Phone Number") {
+        const phoneRegex = /^[0-9+\-\s()]*$/
         if (!phoneRegex.test(contact.value.trim())) {
-          errors.push(`Invalid phone number format for contact #${index + 1}`);
+          errors.push(`Contact ${index + 1}: Invalid phone number format`)
         }
       }
-    });
+    })
   }
 
   // Address Details Validation
-  if (!data.addressDetails.streetAddress?.trim()) errors.push("Street Address is required");
-  if (!data.addressDetails.city?.trim()) errors.push("City is required");
-  if (!data.addressDetails.stateProvince?.trim()) errors.push("State/Province is required");
-  if (!data.addressDetails.postalCode?.trim()) errors.push("Postal Code is required");
-  if (!data.addressDetails.country?.trim()) errors.push("Country is required");
+  if (!data.addressDetails.streetAddress?.trim()) errors.push("Street Address: Street address is required")
+  if (!data.addressDetails.city?.trim()) errors.push("City: City is required")
+  if (!data.addressDetails.stateProvince?.trim()) errors.push("State/Province: State/Province is required")
+  if (!data.addressDetails.postalCode?.trim()) errors.push("Postal Code: Postal code is required")
+  if (!data.addressDetails.country?.trim()) errors.push("Country: Country is required")
 
-  // Validate postal code if provided
-  if (data.addressDetails.postalCode && 
-      !/^\d{4}$/.test(data.addressDetails.postalCode)) {
-    errors.push("Invalid South African postal code");
-  }
-
-  return errors;
+  return errors
 }
+
+const validateTabData = (data: BeneficiaryData, tab: TabId): boolean => {
+  switch (tab) {
+    case "personal-info":
+      return !!(
+        data.personalInfo.title?.trim() &&
+        data.personalInfo.firstName?.trim() &&
+        data.personalInfo.lastName?.trim() &&
+        data.personalInfo.initials?.trim() &&
+        data.personalInfo.dateOfBirth &&
+        data.personalInfo.gender?.trim() &&
+        data.personalInfo.relationshipToMainMember?.trim() &&
+        data.personalInfo.nationality?.trim() &&
+        data.personalInfo.idType?.trim() &&
+        data.personalInfo.idNumber?.trim() &&
+        data.personalInfo.beneficiaryPercentage >= 0 &&
+        data.personalInfo.beneficiaryPercentage <= 100
+      );
+    case "contact-details":
+      return data.contactDetails.length > 0 && data.contactDetails.every(contact => 
+        contact.type?.trim() && 
+        contact.value?.trim() && 
+        (contact.type !== "Email" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.value.trim())) &&
+        (contact.type !== "Phone Number" || /^[0-9+\-\s()]*$/.test(contact.value.trim()))
+      );
+    case "address-details":
+      return !!(
+        data.addressDetails.streetAddress?.trim() &&
+        data.addressDetails.city?.trim() &&
+        data.addressDetails.stateProvince?.trim() &&
+        data.addressDetails.postalCode?.trim() &&
+        data.addressDetails.country?.trim()
+      );
+    default:
+      return false;
+  }
+};
 
 export function BeneficiaryDetails({ 
   beneficiaries, 
@@ -349,6 +329,7 @@ export function BeneficiaryDetails({
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>(null)
   const [messageError, setMessageError] = useState<MessageError>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [activeTab, setActiveTab] = useState("personal-info")
   const [duplicateCheck, setDuplicateCheck] = useState<{
     checking: boolean;
     isDuplicate: boolean;
@@ -367,56 +348,109 @@ export function BeneficiaryDetails({
       }
 
       setIsSaving(true)
-      setValidationErrors(null)
       setMessageError(null)
 
       // Validate all required fields and data
       const validationErrors = validateBeneficiaryData(formData, beneficiaries)
+      
       if (validationErrors.length > 0) {
-        const errorMap = validationErrors.reduce((acc: { [key: string]: string }, error) => {
-          // Extract field name from error message (everything before the colon)
-          const [field, ...messageParts] = error.split(":");
-          const message = messageParts.join(":").trim();
+        // Create error map for field-level validation
+        const errorMap = validationErrors.reduce((acc: { [key: string]: string }, error: string) => {
+          const [field, message] = error.split(":").map(str => str.trim())
+          const key = field.toLowerCase()
+            .replace(/\s+/g, '')
+            .replace('firstname', 'firstName')
+            .replace('lastname', 'lastName')
+            .replace('dateofbirth', 'dateOfBirth')
+            .replace('idnumber', 'idNumber')
+            .replace('idtype', 'idType')
+            .replace('relationshiptomainmember', 'relationshipToMainMember')
+            .replace('benefitpercentage', 'beneficiaryPercentage')
+            .replace('streetaddress', 'streetAddress')
+            .replace('stateprovince', 'stateProvince')
+            .replace('postalcode', 'postalCode')
 
-          if (field.includes("First Name")) acc.firstName = message || field;
-          else if (field.includes("Last Name")) acc.lastName = message || field;
-          else if (field.includes("Initials")) acc.initials = message || field;
-          else if (field.includes("Date of Birth")) acc.dateOfBirth = message || field;
-          else if (field.includes("ID Number") || field.includes("Passport Number")) acc.idNumber = message || field;
-          else if (field.includes("Title")) acc.title = message || field;
-          else if (field.includes("Gender")) acc.gender = message || field;
-          else if (field.includes("Relationship")) acc.relationshipToMainMember = message || field;
-          else if (field.includes("Nationality")) acc.nationality = message || field;
-          else if (field.includes("Type of ID")) acc.idType = message || field;
-          else if (field.includes("contact")) acc.contacts = message || field;
-          else if (field.includes("Street Address")) acc.streetAddress = message || field;
-          else if (field.includes("City")) acc.city = message || field;
-          else if (field.includes("State/Province")) acc.stateProvince = message || field;
-          else if (field.includes("Postal Code")) acc.postalCode = message || field;
-          else if (field.includes("Country")) acc.country = message || field;
-          else if (field.includes("percentage")) acc.beneficiaryPercentage = message || field;
-          return acc;
-        }, {});
+          acc[key] = message || field
+          return acc
+        }, {})
 
-        setValidationErrors(errorMap);
+        setValidationErrors(errorMap)
+
+        // Group errors by tab
+        const errorsByTab: ErrorsByTab = {
+          "personal-info": validationErrors.filter(error => 
+            error.toLowerCase().includes("title") || 
+            error.toLowerCase().includes("first name") || 
+            error.toLowerCase().includes("last name") ||
+            error.toLowerCase().includes("initials") || 
+            error.toLowerCase().includes("date of birth") || 
+            error.toLowerCase().includes("gender") ||
+            error.toLowerCase().includes("relationship") || 
+            error.toLowerCase().includes("nationality") || 
+            error.toLowerCase().includes("id") ||
+            error.toLowerCase().includes("percentage")
+          ),
+          "contact-details": validationErrors.filter(error => 
+            error.toLowerCase().includes("contact")
+          ),
+          "address-details": validationErrors.filter(error => 
+            error.toLowerCase().includes("address") || 
+            error.toLowerCase().includes("city") || 
+            error.toLowerCase().includes("state") || 
+            error.toLowerCase().includes("postal") ||
+            error.toLowerCase().includes("country")
+          )
+        }
+
+        // Show errors for current tab
+        const currentTabErrors = errorsByTab[activeTab as TabId]
+        if (currentTabErrors && currentTabErrors.length > 0) {
         setMessageError(
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Please correct the following errors:</AlertTitle>
             <AlertDescription>
-              <div className="grid grid-cols-2 gap-4 mt-2">
-                {Object.entries(errorMap).map(([field, error], index) => (
-                  <div key={index} className="space-y-1">
-                    <h4 className="font-medium capitalize">{field.replace(/([A-Z])/g, ' $1').trim()}</h4>
-                    <p className="text-sm">{error}</p>
-                  </div>
-                ))}
-              </div>
+                <ul className="list-disc pl-4 mt-2">
+                  {currentTabErrors.map((error: string, index: number) => (
+                    <li key={index}>{error.split(":")[1]?.trim() || error}</li>
+                  ))}
+                </ul>
             </AlertDescription>
           </Alert>
-        );
-        setIsSaving(false);
-        return;
+          )
+        } else {
+          // If current tab has no errors but other tabs do, show a different message
+          const incompleteTabNames = Object.entries(errorsByTab)
+            .filter(([_, errors]) => errors.length > 0)
+            .map(([tabKey, _]) => {
+              switch(tabKey) {
+                case "personal-info": return "Personal Information"
+                case "contact-details": return "Contact Details"
+                case "address-details": return "Address Details"
+                default: return ""
+              }
+            })
+            .filter(Boolean)
+
+          if (incompleteTabNames.length > 0) {
+            setMessageError(
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Please complete required fields in:</AlertTitle>
+                <AlertDescription>
+                  <ul className="list-disc pl-4 mt-2">
+                    {incompleteTabNames.map((tabName, index) => (
+                      <li key={index}>{tabName}</li>
+                    ))}
+                  </ul>
+                </AlertDescription>
+              </Alert>
+            )
+          }
+        }
+
+        setIsSaving(false)
+        return
       }
 
       // Check for duplicates
@@ -441,6 +475,7 @@ export function BeneficiaryDetails({
       setIsDialogOpen(false)
       setFormData(emptyBeneficiary)
       setValidationErrors(null)
+      setMessageError(null)
     } catch (error) {
       console.error('Error adding beneficiary:', error)
       setMessageError('Failed to add beneficiary. Please try again.')
@@ -465,52 +500,106 @@ export function BeneficiaryDetails({
         const otherBeneficiaries = beneficiaries.filter((_, index) => index !== editingIndex)
         
         // Validate all required fields and data
-        const validationError = validateBeneficiaryData(formData, otherBeneficiaries)
-        if (validationError.length > 0) {
-          const errorMap = validationError.reduce((acc: { [key: string]: string }, error) => {
-            // Extract field name from error message (everything before the colon)
-            const [field, ...messageParts] = error.split(":");
-            const message = messageParts.join(":").trim();
+        const validationErrors = validateBeneficiaryData(formData, otherBeneficiaries)
+        
+        if (validationErrors.length > 0) {
+          // Group errors by tab
+          const errorsByTab: ErrorsByTab = {
+            "personal-info": validationErrors.filter(error => 
+              error.toLowerCase().includes("title") || 
+              error.toLowerCase().includes("first name") || 
+              error.toLowerCase().includes("last name") ||
+              error.toLowerCase().includes("initials") || 
+              error.toLowerCase().includes("date of birth") || 
+              error.toLowerCase().includes("gender") ||
+              error.toLowerCase().includes("relationship") || 
+              error.toLowerCase().includes("nationality") || 
+              error.toLowerCase().includes("id") ||
+              error.toLowerCase().includes("percentage")
+            ),
+            "contact-details": validationErrors.filter(error => 
+              error.toLowerCase().includes("contact")
+            ),
+            "address-details": validationErrors.filter(error => 
+              error.toLowerCase().includes("address") || 
+              error.toLowerCase().includes("city") || 
+              error.toLowerCase().includes("state") || 
+              error.toLowerCase().includes("postal") ||
+              error.toLowerCase().includes("country")
+            )
+          }
 
-            if (field.includes("First Name")) acc.firstName = message || field;
-            else if (field.includes("Last Name")) acc.lastName = message || field;
-            else if (field.includes("Initials")) acc.initials = message || field;
-            else if (field.includes("Date of Birth")) acc.dateOfBirth = message || field;
-            else if (field.includes("ID Number") || field.includes("Passport Number")) acc.idNumber = message || field;
-            else if (field.includes("Title")) acc.title = message || field;
-            else if (field.includes("Gender")) acc.gender = message || field;
-            else if (field.includes("Relationship")) acc.relationshipToMainMember = message || field;
-            else if (field.includes("Nationality")) acc.nationality = message || field;
-            else if (field.includes("Type of ID")) acc.idType = message || field;
-            else if (field.includes("contact")) acc.contacts = message || field;
-            else if (field.includes("Street Address")) acc.streetAddress = message || field;
-            else if (field.includes("City")) acc.city = message || field;
-            else if (field.includes("State/Province")) acc.stateProvince = message || field;
-            else if (field.includes("Postal Code")) acc.postalCode = message || field;
-            else if (field.includes("Country")) acc.country = message || field;
-            else if (field.includes("percentage")) acc.beneficiaryPercentage = message || field;
-            return acc;
-          }, {});
+          // Create error map for field-level validation
+          const errorMap = validationErrors.reduce((acc: { [key: string]: string }, error: string) => {
+            const [field, message] = error.split(":").map(str => str.trim())
+            const key = field.toLowerCase()
+              .replace(/\s+/g, '')
+              .replace('firstname', 'firstName')
+              .replace('lastname', 'lastName')
+              .replace('dateofbirth', 'dateOfBirth')
+              .replace('idnumber', 'idNumber')
+              .replace('idtype', 'idType')
+              .replace('relationshiptomainmember', 'relationshipToMainMember')
+              .replace('benefitpercentage', 'beneficiaryPercentage')
+              .replace('streetaddress', 'streetAddress')
+              .replace('stateprovince', 'stateProvince')
+              .replace('postalcode', 'postalCode')
 
-          setValidationErrors(errorMap);
+            acc[key] = message || field
+            return acc
+          }, {})
+
+          setValidationErrors(errorMap)
+
+          // Check if there are any errors in the current tab
+          const currentTabErrors = errorsByTab[activeTab as TabId]
+          if (currentTabErrors && currentTabErrors.length > 0) {
           setMessageError(
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>Please correct the following errors:</AlertTitle>
               <AlertDescription>
-                <div className="grid grid-cols-2 gap-4 mt-2">
-                  {Object.entries(errorMap).map(([field, error], index) => (
-                    <div key={index} className="space-y-1">
-                      <h4 className="font-medium capitalize">{field.replace(/([A-Z])/g, ' $1').trim()}</h4>
-                      <p className="text-sm">{error}</p>
-                    </div>
-                  ))}
-                </div>
+                  <ul className="list-disc pl-4 mt-2">
+                    {currentTabErrors.map((error: string, index: number) => (
+                      <li key={index}>{error.split(":")[1]?.trim() || error}</li>
+                    ))}
+                  </ul>
               </AlertDescription>
             </Alert>
-          );
-          setIsSaving(false);
-          return;
+            )
+          } else {
+            // If current tab has no errors but other tabs do, show a different message
+            const incompleteTabNames = Object.entries(errorsByTab)
+              .filter(([_, errors]) => errors.length > 0)
+              .map(([tabKey, _]) => {
+                switch(tabKey) {
+                  case "personal-info": return "Personal Information"
+                  case "contact-details": return "Contact Details"
+                  case "address-details": return "Address Details"
+                  default: return ""
+                }
+              })
+              .filter(Boolean)
+
+            if (incompleteTabNames.length > 0) {
+              setMessageError(
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Please complete required fields in:</AlertTitle>
+                  <AlertDescription>
+                    <ul className="list-disc pl-4 mt-2">
+                      {incompleteTabNames.map((tabName, index) => (
+                        <li key={index}>{tabName}</li>
+                      ))}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              )
+            }
+          }
+
+          setIsSaving(false)
+          return
         }
 
         // Update beneficiary in Firestore
@@ -530,6 +619,7 @@ export function BeneficiaryDetails({
         setEditingIndex(null)
         setFormData(emptyBeneficiary)
         setValidationErrors(null)
+        setMessageError(null)
       }
     } catch (error) {
       console.error('Error updating beneficiary:', error)
@@ -645,23 +735,44 @@ export function BeneficiaryDetails({
                 {editingBeneficiary ? "Edit Beneficiary" : "Add New Beneficiary"}
               </DialogTitle>
             </DialogHeader>
-            {validationErrors && (
-              <Alert variant="destructive" className="mb-4">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Validation Error</AlertTitle>
-                <AlertDescription>
-                  {validationErrors.title || validationErrors.firstName || validationErrors.lastName || validationErrors.initials || validationErrors.dateOfBirth || validationErrors.gender || validationErrors.relationshipToMainMember || validationErrors.nationality || validationErrors.idType || validationErrors.idNumber || validationErrors.contacts || validationErrors.streetAddress || validationErrors.city || validationErrors.stateProvince || validationErrors.postalCode || validationErrors.country}
-                </AlertDescription>
-              </Alert>
+            
+            {messageError && (
+              <div className="mb-4">
+                {messageError}
+              </div>
             )}
+            
             <BeneficiaryForm
-              data={editingBeneficiary || emptyBeneficiary}
+              data={editingBeneficiary || formData}
               updateData={(data: BeneficiaryData) => {
                 setFormData(data);
-                setValidationErrors(null);
+                // Clear validation errors for the current tab if it's valid
+                if (validateTabData(data, activeTab as TabId)) {
+                  setValidationErrors(prev => {
+                    if (!prev) return null;
+                    const newErrors = { ...prev };
+                    // Remove errors related to the current tab
+                    Object.keys(newErrors).forEach(key => {
+                      if (
+                        (activeTab === "personal-info" && key.includes("personal")) ||
+                        (activeTab === "contact-details" && key.includes("contact")) ||
+                        (activeTab === "address-details" && key.includes("address"))
+                      ) {
+                        delete newErrors[key];
+                      }
+                    });
+                    return Object.keys(newErrors).length > 0 ? newErrors : null;
+                  });
+                  setMessageError(null);
+                }
               }}
               mainMemberIdNumber={mainMemberIdNumber}
               errors={validationErrors}
+              onTabChange={(tab: TabId) => {
+                setActiveTab(tab);
+                // Clear message error when changing tabs
+                setMessageError(null);
+              }}
             />
             <div className="flex justify-end space-x-2 mt-4">
               <Button 
@@ -669,6 +780,7 @@ export function BeneficiaryDetails({
                 onClick={() => {
                   handleCancel();
                   setValidationErrors(null);
+                  setMessageError(null);
                 }}
                 disabled={isSaving}
               >

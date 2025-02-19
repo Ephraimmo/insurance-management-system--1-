@@ -8,7 +8,7 @@ import { DependentForm } from "./DependentForm"
 import { collection, addDoc, query, where, getDocs, doc, getDoc, deleteDoc } from "firebase/firestore"
 import { db } from "@/src/FirebaseConfg"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Loader2, AlertCircle, UserPlus, UserX, UserCheck, AlertTriangle } from "lucide-react"
+import { Loader2, AlertCircle, UserPlus, UserX, UserCheck, AlertTriangle, Plus } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 type ErrorState = { [key: string]: string } | null;
@@ -659,6 +659,7 @@ export function DependentDetails({
                 >
                   <DialogTrigger asChild>
                     <Button 
+                      id="Add Dependent"
                       onClick={() => {
                         if (!isSaving) {
                           setEditingDependent(null)
@@ -675,7 +676,10 @@ export function DependentDetails({
                           Adding...
                         </>
                       ) : (
-                        'Add Dependent'
+                        <>
+                          <UserPlus className="w-4 h-4 mr-2" />
+                          Add Dependent
+                        </>
                       )}
                     </Button>
                   </DialogTrigger>
@@ -690,15 +694,6 @@ export function DependentDetails({
                         {isSaving && <span className="ml-2 text-sm text-gray-500">(Saving...)</span>}
                       </DialogTitle>
                     </DialogHeader>
-                    {error && (
-                      <Alert variant="destructive" className="mb-4">
-                        <AlertCircle className="h-4 w-4" />
-                        <AlertTitle>Validation Error</AlertTitle>
-                        <AlertDescription>
-                          {error}
-                        </AlertDescription>
-                      </Alert>
-                    )}
                     <DependentForm
                       data={editingDependent || formData}
                       updateData={(data) => {
