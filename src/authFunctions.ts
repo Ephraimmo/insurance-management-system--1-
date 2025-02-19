@@ -144,70 +144,83 @@ export const loginWithUsername = async (username: string, password: string): Pro
       success: false,
       role: '',
       error: 'Cannot login on server side'
-    }
+    };
   }
 
+  const db = getFirebaseDb();
   if (!db) {
+    console.error('Firestore is not available');
     return {
       success: false,
       role: '',
       error: 'Database service is not available'
-    }
+    };
   }
 
   try {
-    const usersRef = collection(db, 'users')
-    const q = query(usersRef, where('username', '==', username))
-    const snapshot = await getDocs(q)
+    console.log('Attempting login with username...');
+    const usersRef = collection(db, 'users');
+    const q = query(usersRef, where('username', '==', username));
+    const snapshot = await getDocs(q);
 
     if (snapshot.empty) {
+      console.log('No user found with username:', username);
       return {
         success: false,
         role: '',
         error: 'No user found with this username'
-      }
+      };
     }
 
-    const userDoc = snapshot.docs[0]
-    const userData = userDoc.data()
+    const userDoc = snapshot.docs[0];
+    const userData = userDoc.data();
 
     if (userData.password !== password) {
+      console.log('Invalid password for user:', username);
       return {
         success: false,
         role: '',
         error: 'Invalid password'
-      }
+      };
     }
 
+    console.log('Login successful for user:', username);
     await setDoc(doc(usersRef, userDoc.id), {
       ...userData,
       lastLogin: new Date()
-    }, { merge: true })
+    }, { merge: true });
 
     return {
       success: true,
       role: userData.role || 'User'
-    }
+    };
   } catch (error: any) {
-    console.error('Login error:', error)
+    console.error('Login error:', error);
     return {
       success: false,
       role: '',
       error: 'An unexpected error occurred. Please try again.'
-    }
+    };
   }
-}
+};
 
 export const logoutUser = async (): Promise<void> => {
-  if (typeof window === 'undefined' || !auth) {
-    console.error('Auth is not initialized or not on client side')
-    return
+  if (typeof window === 'undefined') {
+    console.error('Cannot logout on server side');
+    return;
+  }
+
+  const auth = getFirebaseAuth();
+  if (!auth) {
+    console.error('Auth service is not available');
+    return;
   }
 
   try {
-    await signOut(auth)
+    await signOut(auth);
+    console.log('Logout successful');
   } catch (error) {
-    console.error('Logout error:', error)
-    throw error
+    console.error('Logout error:', error);
+    throw error;
   }
-} 
+}; 
