@@ -12,8 +12,37 @@ const firebaseConfig = {
   databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
 }
 
+// Add validation for required config values
+const requiredKeys = [
+  'apiKey',
+  'authDomain',
+  'projectId',
+  'storageBucket',
+  'messagingSenderId',
+  'appId'
+]
+
+// Check for missing configuration
+const missingKeys = requiredKeys.filter(key => !firebaseConfig[key])
+if (missingKeys.length > 0) {
+  console.error('Missing Firebase configuration keys:', missingKeys)
+  throw new Error(`Missing required Firebase configuration: ${missingKeys.join(', ')}`)
+}
+
 // Initialize Firebase
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp()
+let app
+try {
+  app = !getApps().length ? initializeApp(firebaseConfig) : getApp()
+} catch (error) {
+  console.error('Error initializing Firebase:', error)
+  console.error('Firebase config:', {
+    ...firebaseConfig,
+    apiKey: firebaseConfig.apiKey ? '**exists**' : '**missing**',
+    appId: firebaseConfig.appId ? '**exists**' : '**missing**'
+  })
+  throw error
+}
+
 const auth = getAuth(app)
 const db = getFirestore(app)
 
