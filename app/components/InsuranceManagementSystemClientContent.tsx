@@ -9,12 +9,14 @@ import { Customers } from "@/components/Customers"
 import { Reports } from "@/components/Reports"
 import { AddContract } from "@/components/AddContract"
 import { SearchContract } from "@/components/SearchContract"
+import { AmendContract } from "@/components/contract/AmendContract"
 import { ClaimsProcessing } from "@/components/ClaimsProcessing"
 import { CateringMaintenance } from "@/components/CateringMaintenance"
 import { CategoryMaintenance } from "@/components/CategoryMaintenance"
 import { FeatureMaintenance } from "@/components/FeatureMaintenance"
 import { Payment } from "@/components/Payment"
 import { UserManagement } from "@/components/UserManagement"
+import { CauseOfDeath } from "@/components/CauseOfDeath"
 import { Building2, Lock, User, AlertCircle } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -97,7 +99,7 @@ export default function InsuranceManagementSystemClientContent() {
     }
   }
 
-  const renderPage = () => {
+  const renderContent = () => {
     switch (currentPage) {
       case "dashboard":
         return <Dashboard />
@@ -113,8 +115,12 @@ export default function InsuranceManagementSystemClientContent() {
         return <AddContract userRole={userRole} />
       case "searchContract":
         return <SearchContract userRole={userRole} />
+      case "contractAmendment":
+        return <AmendContract userRole={userRole} />
       case "claimsProcessing":
         return <ClaimsProcessing userRole={userRole} />
+      case "cateringMaintenance":
+        return <CateringMaintenance />
       case "categoryMaintenance":
         return <CategoryMaintenance />
       case "featureMaintenance":
@@ -123,6 +129,8 @@ export default function InsuranceManagementSystemClientContent() {
         return <Payment />
       case "userManagement":
         return <UserManagement />
+      case "causeOfDeath":
+        return <CauseOfDeath />
       default:
         return <Dashboard />
     }
@@ -253,7 +261,7 @@ export default function InsuranceManagementSystemClientContent() {
   ) : (
     <div>
       <Layout setCurrentPage={setCurrentPage} onLogout={handleLogout} userRole={userRole}>
-        {renderPage()}
+        {renderContent()}
       </Layout>
     </div>
   )

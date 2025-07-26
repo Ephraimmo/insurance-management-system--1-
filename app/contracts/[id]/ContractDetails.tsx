@@ -102,6 +102,11 @@ type ContractData = {
     name: string
     coverAmount: string
     premium: number | null
+    description: string
+    features: string[]
+    maxDependents: number
+    status: string
+    isSelected: boolean
   }
   cateringOptions: Array<{
     id: string
@@ -261,7 +266,12 @@ export function ContractDetails({ id }: ContractDetailsProps) {
             policiesId: policiesData?.id || "",
             name: policiesData?.name || "",
             coverAmount: policiesData?.coverAmount || "",
-            premium: policiesData?.premium || null
+            premium: policiesData?.premium || null,
+            description: policiesData?.description || "",
+            features: policiesData?.features || [],
+            maxDependents: policiesData?.maxDependents || 0,
+            status: policiesData?.status || "",
+            isSelected: false
           },
           cateringOptions: cateringOptionsData,
           status: contractData.status
@@ -338,8 +348,8 @@ export function ContractDetails({ id }: ContractDetailsProps) {
         Back to Contracts
       </Button>
       <ContractSummary 
-        data={contractData} 
-        onEdit={() => {}} 
+        data={contractData as any} 
+        onEdit={(tab: string) => {}} 
         isLoading={loading}
         error={error}
       />

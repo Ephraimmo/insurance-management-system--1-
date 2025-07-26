@@ -1,0 +1,827 @@
+# Insurance Management System - Mobile App Specification
+
+## Overview
+This mobile app will complement the existing web-based Insurance Management System by providing customers with a convenient way to access their policy information, manage claims, and interact with the company. The app will connect to the same Firebase database used by the web application without modifying any existing code or database structures.
+
+## Technical Architecture
+- **Frontend**: React Native for cross-platform mobile development
+- **Backend**: Existing Firebase infrastructure
+- **Authentication**: Firebase Authentication
+- **Database**: Existing Firebase Firestore collections
+- **Storage**: Existing Firebase Storage for document uploads
+
+## Firebase Project Configuration
+The mobile app **MUST** use the identical Firebase project configuration as the existing web application:
+
+1. **Shared Configuration**: 
+   - Use the exact same Firebase project ID, API keys, and credentials
+   - Extract the Firebase configuration object from the existing web project (found in `src/FirebaseConfg.js`)
+   - Do not create a new Firebase project or separate instance
+
+2. **Configuration Implementation**:
+   ```javascript
+   // Example implementation in the mobile app
+   // This must use the SAME configuration values from the existing web project
+   // src/firebase/config.js
+
+   import { initializeApp } from 'firebase/app';
+   import { getFirestore } from 'firebase/firestore';
+   import { getStorage } from 'firebase/storage';
+   import { getAuth } from 'firebase/auth';
+
+   // IMPORTANT: This is the exact Firebase configuration from the web app
+   const firebaseConfig = {
+     apiKey: "AIzaSyDibpkuzUookkbMVIoHqe_rYu1umY1qF-4",
+     authDomain: "data-b93ed.firebaseapp.com",
+     databaseURL: "https://data-b93ed-default-rtdb.firebaseio.com",
+     projectId: "data-b93ed",
+     storageBucket: "data-b93ed.appspot.com",
+     messagingSenderId: "218236841715",
+     appId: "1:218236841715:web:40db92685356afaa701186"
+   };
+
+   // Initialize Firebase with the same configuration
+   const app = initializeApp(firebaseConfig);
+   const db = getFirestore(app);
+   const storage = getStorage(app);
+   const auth = getAuth(app);
+
+   export { db, storage, auth };
+   ```
+
+3. **Ensuring Configuration Consistency**:
+   - Before development begins, extract the exact Firebase configuration object from the web project
+   - Document the configuration values for reference
+   - Validate during testing that both applications are connecting to the same Firebase instance
+   - Set up environment variables to manage the configuration across environments (dev, staging, production)
+
+4. **Security Rules Sharing**:
+   - The mobile app will automatically inherit the same Firestore and Storage security rules
+   - No separate security rules need to be defined as they are configured at the Firebase project level
+
+## Database Integration
+The app will use the existing Firebase collections:
+- Contracts
+- Members
+- Beneficiaries
+- Dependents
+- Claims
+- CauseOfDeath
+- member_contract_relationships
+- Benefit
+- Relationship
+- Status
+
+## Data Retrieval Patterns
+
+Based on the existing web application's approach, the mobile app should implement the following data retrieval patterns:
+
+### Contract with Members Retrieval
+
+The web application uses a centralized service approach to fetch contracts with their related members. The mobile app should follow the same pattern:
+
+```javascript
+// Core function to get a contract with all its members
+const getContractWithMembers = async (contractId) => {
+  try {
+    // 1. Get the contract document
+    const contractDoc = await getDoc(doc(db, 'Contracts', contractId));
+    
+    if (!contractDoc.exists()) {
+      throw new Error('Contract not found');
+    }
+    
+    const contractData = {
+      id: contractDoc.id,
+      ...contractDoc.data(),
+      start_date: contractDoc.data().start_date?.toDate() || new Date(),
+      end_date: contractDoc.data().end_date?.toDate() || new Date()
+    };
+    
+    // 2. Get all relationships for this contract
+    const relationshipsSnapshot = await getDocs(
+      query(
+        collection(db, 'member_contract_relationships'),
+        where('contract_number', '==', contractData.contractNumber)
+      )
+    );
+    
+    // 3. Organize relationships by role
+    const mainMemberRel = [];
+    const dependentRels = [];
+    const beneficiaryRels = [];
+    
+    relationshipsSnapshot.forEach(doc => {
+      const relData = { id: doc.id, ...doc.data() };
+      
+      if (relData.role === 'Main Member') {
+        mainMemberRel.push(relData);
+      } else if (relData.role === 'Dependent') {
+        dependentRels.push(relData);
+      } else if (relData.role === 'Beneficiary') {
+        beneficiaryRels.push(relData);
+      }
+    });
+    
+    // 4. Get main member details
+    let mainMember = null;
+    if (mainMemberRel.length > 0) {
+      const memberDoc = await getDoc(doc(db, 'Members', mainMemberRel[0].member_id));
+      if (memberDoc.exists()) {
+        mainMember = {
+          member_id: memberDoc.id,
+          first_name: memberDoc.data().firstName || '',
+          last_name: memberDoc.data().lastName || '',
+          id_number: memberDoc.data().idNumber || '',
+          dob: memberDoc.data().dateOfBirth?.toDate() || new Date()
+        };
+      }
+    }
+    
+    // 5. Get dependents with additional details from Status and Relationship collections
+    const dependents = await Promise.all(
+      dependentRels.map(async (rel) => {
+        const memberDoc = await getDoc(doc(db, 'Members', rel.member_id));
+        if (!memberDoc.exists()) return null;
+        
+        // Get status information
+        const statusQuery = query(
+          collection(db, 'Status'),
+          where('relationship_id', '==', rel.id)
+        );
+        const statusSnapshot = await getDocs(statusQuery);
+        const statusData = statusSnapshot.empty ? {} : statusSnapshot.docs[0].data();
+        
+        // Get relationship information
+        const relationshipQuery = query(
+          collection(db, 'Relationship'),
+          where('relationship_id', '==', rel.id)
+        );
+        const relationshipSnapshot = await getDocs(relationshipQuery);
+        const relationshipData = relationshipSnapshot.empty ? {} : relationshipSnapshot.docs[0].data();
+        
+        return {
+          member_id: memberDoc.id,
+          first_name: memberDoc.data().firstName || '',
+          last_name: memberDoc.data().lastName || '',
+          id_number: memberDoc.data().idNumber || '',
+          dob: memberDoc.data().dateOfBirth?.toDate() || new Date(),
+          status: statusData.status || 'Unknown',
+          relationship_type: relationshipData.type || '',
+          relationship_description: relationshipData.description || ''
+        };
+      })
+    ).then(results => results.filter(Boolean));
+    
+    // 6. Get beneficiaries with additional details from Benefit and Relationship collections
+    const beneficiaries = await Promise.all(
+      beneficiaryRels.map(async (rel) => {
+        const memberDoc = await getDoc(doc(db, 'Members', rel.member_id));
+        if (!memberDoc.exists()) return null;
+        
+        // Get benefit percentage
+        const benefitQuery = query(
+          collection(db, 'Benefit'),
+          where('relationship_id', '==', rel.id)
+        );
+        const benefitSnapshot = await getDocs(benefitQuery);
+        const benefitData = benefitSnapshot.empty ? {} : benefitSnapshot.docs[0].data();
+        
+        // Get relationship information
+        const relationshipQuery = query(
+          collection(db, 'Relationship'),
+          where('relationship_id', '==', rel.id)
+        );
+        const relationshipSnapshot = await getDocs(relationshipQuery);
+        const relationshipData = relationshipSnapshot.empty ? {} : relationshipSnapshot.docs[0].data();
+        
+        return {
+          member_id: memberDoc.id,
+          first_name: memberDoc.data().firstName || '',
+          last_name: memberDoc.data().lastName || '',
+          id_number: memberDoc.data().idNumber || '',
+          dob: memberDoc.data().dateOfBirth?.toDate() || new Date(),
+          benefit_percentage: benefitData.percentage || 0,
+          relationship_type: relationshipData.type || '',
+          relationship_description: relationshipData.description || ''
+        };
+      })
+    ).then(results => results.filter(Boolean));
+    
+    // 7. Return complete contract data with all members
+    return {
+      ...contractData,
+      mainMember,
+      dependents,
+      beneficiaries
+    };
+  } catch (error) {
+    console.error('Error fetching contract with members:', error);
+    throw error;
+  }
+};
+```
+
+### Claims Retrieval
+
+For fetching claims related to a contract:
+
+```javascript
+const getClaimsForContract = async (contractNumber) => {
+  try {
+    // Query claims collection for this contract
+    const claimsSnapshot = await getDocs(
+      query(
+        collection(db, 'Claims'),
+        where('policyNumber', '==', contractNumber)
+      )
+    );
+    
+    if (claimsSnapshot.empty) {
+      return [];
+    }
+    
+    // Transform claim data and get additional details
+    const claims = await Promise.all(
+      claimsSnapshot.docs.map(async (claimDoc) => {
+        const claimData = claimDoc.data();
+        
+        // Get deceased person details if available
+        let deceasedPerson = null;
+        if (claimData.deceasedPersonId) {
+          const memberDoc = await getDoc(doc(db, 'Members', claimData.deceasedPersonId));
+          if (memberDoc.exists()) {
+            deceasedPerson = {
+              id: memberDoc.id,
+              ...memberDoc.data(),
+              dateOfDeath: claimData.dateOfDeath?.toDate() || null,
+              causeOfDeath: claimData.causeOfDeath || '',
+              placeOfDeath: claimData.placeOfDeath || ''
+            };
+          }
+        }
+        
+        // Get documents attached to this claim
+        const documentsSnapshot = await getDocs(
+          query(
+            collection(db, 'ClaimDocuments'),
+            where('claimId', '==', claimDoc.id)
+          )
+        );
+        
+        const documents = documentsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          uploadDate: doc.data().uploadDate?.toDate() || new Date()
+        }));
+        
+        return {
+          id: claimDoc.id,
+          ...claimData,
+          submissionDate: claimData.submissionDate?.toDate() || new Date(),
+          deceasedPerson,
+          documents
+        };
+      })
+    );
+    
+    return claims;
+  } catch (error) {
+    console.error('Error fetching claims for contract:', error);
+    throw error;
+  }
+};
+```
+
+### UI Implementation for Contract Summary
+
+Based on the existing web application's ContractSummary component, the mobile app should implement a similar pattern for displaying contract information:
+
+```javascript
+// In a React Native component
+const ContractSummaryScreen = ({ contractId }) => {
+  const [contract, setContract] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  
+  useEffect(() => {
+    const fetchContract = async () => {
+      try {
+        setLoading(true);
+        const contractData = await getContractWithMembers(contractId);
+        setContract(contractData);
+        setError('');
+      } catch (error) {
+        console.error('Error fetching contract:', error);
+        setError(error.message || 'Failed to fetch contract details');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchContract();
+  }, [contractId]);
+  
+  if (loading) {
+    return <ActivityIndicator size="large" color="#0000ff" />;
+  }
+  
+  if (error) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>{error}</Text>
+      </View>
+    );
+  }
+  
+  if (!contract) {
+    return (
+      <View style={styles.emptyContainer}>
+        <Text>No contract found</Text>
+      </View>
+    );
+  }
+  
+  const formatDate = (date) => {
+    return new Date(date).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
+  
+  return (
+    <ScrollView style={styles.container}>
+      {/* Contract Details Card */}
+      <Card style={styles.card}>
+        <Card.Title>Contract Details</Card.Title>
+        <Card.Content>
+          <View style={styles.detailRow}>
+            <Text style={styles.label}>Contract Name</Text>
+            <Text style={styles.value}>{contract.contract_name}</Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.label}>Contract Period</Text>
+            <Text style={styles.value}>
+              {formatDate(contract.start_date)} - {formatDate(contract.end_date)}
+            </Text>
+          </View>
+        </Card.Content>
+      </Card>
+      
+      {/* Main Member Card */}
+      {contract.mainMember && (
+        <Card style={styles.card}>
+          <Card.Title>Main Member</Card.Title>
+          <Card.Content>
+            <View style={styles.detailRow}>
+              <Text style={styles.label}>Name</Text>
+              <Text style={styles.value}>
+                {contract.mainMember.first_name} {contract.mainMember.last_name}
+              </Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.label}>ID Number</Text>
+              <Text style={styles.value}>{contract.mainMember.id_number}</Text>
+            </View>
+            <View style={styles.detailRow}>
+              <Text style={styles.label}>Date of Birth</Text>
+              <Text style={styles.value}>{formatDate(contract.mainMember.dob)}</Text>
+            </View>
+          </Card.Content>
+        </Card>
+      )}
+      
+      {/* Dependents Section */}
+      {contract.dependents.length > 0 && (
+        <Card style={styles.card}>
+          <Card.Title>Dependents</Card.Title>
+          <Card.Content>
+            {contract.dependents.map((dependent, index) => (
+              <View key={dependent.member_id} style={styles.memberItem}>
+                <Text style={styles.memberTitle}>Dependent {index + 1}</Text>
+                <View style={styles.detailRow}>
+                  <Text style={styles.label}>Name</Text>
+                  <Text style={styles.value}>
+                    {dependent.first_name} {dependent.last_name}
+                  </Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.label}>ID Number</Text>
+                  <Text style={styles.value}>{dependent.id_number}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.label}>Date of Birth</Text>
+                  <Text style={styles.value}>{formatDate(dependent.dob)}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.label}>Relationship</Text>
+                  <Text style={styles.value}>{dependent.relationship_type}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.label}>Status</Text>
+                  <Text style={styles.value}>{dependent.status}</Text>
+                </View>
+              </View>
+            ))}
+          </Card.Content>
+        </Card>
+      )}
+      
+      {/* Beneficiaries Section */}
+      {contract.beneficiaries.length > 0 && (
+        <Card style={styles.card}>
+          <Card.Title>Beneficiaries</Card.Title>
+          <Card.Content>
+            {contract.beneficiaries.map((beneficiary, index) => (
+              <View key={beneficiary.member_id} style={styles.memberItem}>
+                <Text style={styles.memberTitle}>Beneficiary {index + 1}</Text>
+                <View style={styles.detailRow}>
+                  <Text style={styles.label}>Name</Text>
+                  <Text style={styles.value}>
+                    {beneficiary.first_name} {beneficiary.last_name}
+                  </Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.label}>ID Number</Text>
+                  <Text style={styles.value}>{beneficiary.id_number}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.label}>Date of Birth</Text>
+                  <Text style={styles.value}>{formatDate(beneficiary.dob)}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.label}>Relationship</Text>
+                  <Text style={styles.value}>{beneficiary.relationship_type}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.label}>Benefit Percentage</Text>
+                  <Text style={styles.value}>{beneficiary.benefit_percentage}%</Text>
+                </View>
+              </View>
+            ))}
+          </Card.Content>
+        </Card>
+      )}
+    </ScrollView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: 16,
+  },
+  card: {
+    marginBottom: 16,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  label: {
+    fontSize: 14,
+    color: '#666',
+  },
+  value: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  memberItem: {
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#eee',
+    borderRadius: 8,
+  },
+  memberTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  errorContainer: {
+    flex: 1,
+    padding: 16,
+    backgroundColor: '#ffebee',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  errorText: {
+    color: '#c62828',
+    fontSize: 16,
+  },
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+  },
+});
+```
+
+## Feature Specification
+
+### 1. Login Screen
+- **Input Fields**:
+  - Contract Number (username)
+  - ID Number (password)
+- **Functionality**:
+  - Query the 'Contracts' collection for the entered contract number
+  - Verify that the ID number matches the memberIdNumber in the contract
+  - If verified, grant access; otherwise, show "Invalid credentials" message
+- **Implementation**:
+  ```javascript
+  const verifyLogin = async (contractNumber, idNumber) => {
+    try {
+      const contractQuery = query(
+        collection(db, 'Contracts'),
+        where("contractNumber", "==", contractNumber)
+      );
+      const contractSnapshot = await getDocs(contractQuery);
+      
+      if (contractSnapshot.empty) {
+        return { success: false, message: "Invalid credentials" };
+      }
+      
+      const contractData = contractSnapshot.docs[0].data();
+      
+      if (contractData.memberIdNumber === idNumber) {
+        return { success: true, contractData };
+      } else {
+        return { success: false, message: "Invalid credentials" };
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+      return { success: false, message: "An error occurred during login" };
+    }
+  };
+  ```
+
+### 2. Main Screen - Policy Information
+- **Display**:
+  - Policy holder name and contract number
+  - Policy status and coverage amount
+  - Policy type and start date
+  - Tabs for Beneficiaries and Dependents
+
+- **Beneficiaries Tab**:
+  - List of all beneficiaries with their details
+  - Show relationship to main member and beneficiary percentage
+
+- **Dependents Tab**:
+  - List of all dependents with their details
+  - Show relationship to main member and dependent status
+
+- **Implementation**:
+  ```javascript
+  const fetchPolicyDetails = async (contractNumber) => {
+    // Fetch contract data using the same query structure as the web app
+    const contractsRef = collection(db, 'Contracts');
+    const contractQuery = query(contractsRef, where("contractNumber", "==", contractNumber));
+    const contractSnapshot = await getDocs(contractQuery);
+    
+    if (contractSnapshot.empty) return null;
+    
+    const contractDoc = contractSnapshot.docs[0];
+    const contractData = contractDoc.data();
+    
+    // Get main member details
+    const membersQuery = query(
+      collection(db, 'Members'),
+      where('idNumber', '==', contractData.memberIdNumber)
+    );
+    const memberSnapshot = await getDocs(membersQuery);
+    const memberData = memberSnapshot.docs[0]?.data();
+    
+    // Get plan details
+    const planRef = doc(db, 'Policies', contractData.policiesId);
+    const policiesDoc = await getDoc(planRef);
+    const policiesData = policiesDoc.data();
+    
+    // Get beneficiaries
+    const beneficiariesQuery = query(
+      collection(db, 'Beneficiaries'),
+      where('contractNumber', '==', contractData.contractNumber)
+    );
+    const beneficiariesSnapshot = await getDocs(beneficiariesQuery);
+    const beneficiariesData = beneficiariesSnapshot.docs.map(doc => doc.data());
+    
+    // Get dependents
+    const dependentsQuery = query(
+      collection(db, 'Dependents'),
+      where('contractNumber', '==', contractData.contractNumber)
+    );
+    const dependentsSnapshot = await getDocs(dependentsQuery);
+    const dependentsData = dependentsSnapshot.docs.map(doc => doc.data());
+    
+    return {
+      mainMember: memberData,
+      policy: {
+        contractNumber: contractData.contractNumber,
+        status: contractData.status,
+        coverAmount: policiesData?.coverAmount || 0,
+        startDate: contractData.startDate?.toDate() || new Date(),
+        type: policiesData?.name || 'Unknown'
+      },
+      beneficiaries: beneficiariesData,
+      dependents: dependentsData
+    };
+  };
+  ```
+
+### 3. Claims Section
+- **Claims Dashboard**:
+  - List of existing claims with status indicators
+  - Filter by status (FNOL, under investigation, approved, paid, rejected)
+  - Sort by date
+
+- **Claim Details View**:
+  - Show full claim details
+  - Display documents attached to the claim
+  - Show payment status and history
+
+- **Upload Receipt**:
+  - Camera integration for capturing receipts
+  - Upload interface for selecting existing photos/documents
+  - Progress indicator during upload
+  - Receipt type selection dropdown
+
+- **Track Approval Status**:
+  - Real-time status updates using Firebase listeners
+  - Push notifications for status changes
+  - Timeline view of claim progression
+
+- **Implementation**:
+  ```javascript
+  // Fetch claims for a contract
+  const fetchClaims = async (contractNumber) => {
+    const claimsRef = collection(db, 'Claims');
+    const claimsQuery = query(claimsRef, where("policyNumber", "==", contractNumber));
+    const claimsSnapshot = await getDocs(claimsQuery);
+    
+    return claimsSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      submissionDate: doc.data().submissionDate?.toDate() || new Date()
+    }));
+  };
+  
+  // Upload receipt for a claim
+  const uploadReceipt = async (file, claimNumber) => {
+    const timestamp = Date.now();
+    const fileName = `claims/${claimNumber}/receipt_${timestamp}_${file.name}`;
+    const fileRef = ref(storage, fileName);
+    
+    // Upload to Firebase Storage
+    await uploadBytes(fileRef, file);
+    const downloadUrl = await getDownloadURL(fileRef);
+    
+    // Add to claim documents
+    const claimsRef = collection(db, 'Claims');
+    const claimQuery = query(claimsRef, where("claimNumber", "==", claimNumber));
+    const claimSnapshot = await getDocs(claimQuery);
+    
+    if (!claimSnapshot.empty) {
+      const claimDoc = claimSnapshot.docs[0];
+      const claimData = claimDoc.data();
+      
+      // Update the documents array
+      const updatedDocuments = [...(claimData.documents || []), {
+        type: "Receipt",
+        url: downloadUrl,
+        uploadDate: serverTimestamp()
+      }];
+      
+      await updateDoc(claimDoc.ref, { documents: updatedDocuments });
+      return true;
+    }
+    
+    return false;
+  };
+  ```
+
+### 4. User Profile
+- **Personal Information**:
+  - Display user's personal details from the Members collection
+  - Show contact information and address
+  - Policy information summary
+
+- **Request Call Feature**:
+  - Form to submit call request
+  - Schedule preferred time for call
+  - Specify topic or question
+  - Confirmation message after submission
+
+- **Implementation**:
+  ```javascript
+  // Fetch user profile
+  const fetchUserProfile = async (memberIdNumber) => {
+    const membersRef = collection(db, 'Members');
+    const memberQuery = query(membersRef, where("idNumber", "==", memberIdNumber));
+    const memberSnapshot = await getDocs(memberQuery);
+    
+    if (memberSnapshot.empty) return null;
+    
+    return {
+      ...memberSnapshot.docs[0].data(),
+      id: memberSnapshot.docs[0].id
+    };
+  };
+  
+  // Submit call request
+  const submitCallRequest = async (memberIdNumber, preferredTime, topic) => {
+    try {
+      await addDoc(collection(db, 'CallRequests'), {
+        memberIdNumber,
+        preferredTime,
+        topic,
+        status: "pending",
+        createdAt: serverTimestamp()
+      });
+      
+      return { success: true };
+    } catch (error) {
+      console.error("Error submitting call request:", error);
+      return { success: false, message: "Failed to submit request" };
+    }
+  };
+  ```
+
+## User Interface Design
+The mobile app will follow modern mobile design principles with intuitive navigation:
+
+1. **Bottom Navigation Bar**:
+   - Home (Policy Details)
+   - Claims
+   - Profile
+   - Notifications
+
+2. **Color Scheme**:
+   - Primary color: Match existing web application
+   - Secondary colors: Complementary to primary
+   - Status indicators: Green (approved), Red (rejected), Yellow (in progress)
+
+3. **Typography**:
+   - Consistent font family throughout the app
+   - Hierarchical text sizing for readability
+
+4. **Responsive Design**:
+   - Support for various screen sizes
+   - Landscape and portrait orientations
+   - Adaptive layouts for tablets
+
+## Security Considerations
+- Implement session timeout after period of inactivity
+- Secure storage of authentication tokens
+- Data encryption for sensitive information
+- Firebase Security Rules to control access to Firestore data
+
+## Offline Capabilities
+- Cache policy information for offline viewing
+- Queue document uploads when offline
+- Sync data when connection is restored
+
+## Implementation Timeline
+1. **Phase 1 (2 weeks)**: Setup and Authentication
+   - Project setup with React Native
+   - Firebase integration
+   - Login screen implementation
+
+2. **Phase 2 (3 weeks)**: Policy Information
+   - Main screen development
+   - Beneficiaries and Dependents tabs
+   - Data retrieval and display
+
+3. **Phase 3 (4 weeks)**: Claims Management
+   - Claims list and details views
+   - Document upload functionality
+   - Status tracking implementation
+
+4. **Phase 4 (2 weeks)**: User Profile
+   - Profile information display
+   - Call request feature
+   - Settings and preferences
+
+5. **Phase 5 (3 weeks)**: Testing and Refinement
+   - User acceptance testing
+   - Bug fixes and optimizations
+   - Performance improvements
+
+## Testing Strategy
+- Unit testing for core components
+- Integration testing for Firebase connectivity
+- End-to-end testing for critical user flows
+- Beta testing with selected customers
+
+## Deployment Plan
+1. Internal testing release
+2. Limited beta release to selected customers
+3. Staged rollout to all customers
+4. App Store and Google Play submission
+
+## Maintenance Plan
+- Regular updates based on user feedback
+- Monitoring for Firebase changes
+- Performance optimization
+- Security patches as needed 

@@ -1,0 +1,563 @@
+# Insurance Management System - Flutter Mobile App Guide
+
+## Project Setup
+
+1. **Environment Setup**
+```bash
+# Install Flutter SDK
+flutter create insurance_management_app
+cd insurance_management_app
+```
+
+2. **Dependencies (pubspec.yaml)**
+```yaml
+dependencies:
+  flutter:
+    sdk: flutter
+  firebase_core: ^2.24.2
+  firebase_auth: ^4.15.3
+  cloud_firestore: ^4.13.6
+  firebase_storage: ^11.5.6
+  provider: ^6.1.1
+  get: ^4.6.6
+  shared_preferences: ^2.2.2
+  intl: ^0.19.0
+  image_picker: ^1.0.5
+  file_picker: ^6.1.1
+  path: ^1.8.3
+  flutter_secure_storage: ^9.0.0
+```
+
+## Project Structure
+```
+lib/
+├── main.dart
+├── config/
+│   └── firebase_config.dart
+├── models/
+│   ├── member.dart
+│   ├── contract.dart
+│   ├── claim.dart
+│   ├── benefit.dart
+│   └── relationship.dart
+├── services/
+│   ├── auth_service.dart
+│   ├── member_service.dart
+│   ├── contract_service.dart
+│   └── storage_service.dart
+├── providers/
+│   ├── auth_provider.dart
+│   └── member_provider.dart
+├── screens/
+│   ├── auth/
+│   │   ├── login_screen.dart
+│   │   └── splash_screen.dart
+│   ├── home/
+│   │   ├── home_screen.dart
+│   │   └── dashboard_screen.dart
+│   ├── policy/
+│   │   ├── policy_details_screen.dart
+│   │   ├── beneficiaries_screen.dart
+│   │   └── dependents_screen.dart
+│   └── claims/
+│       ├── claims_list_screen.dart
+│       ├── claim_details_screen.dart
+│       └── upload_document_screen.dart
+└── widgets/
+    ├── common/
+    │   ├── custom_button.dart
+    │   └── loading_indicator.dart
+    └── policy/
+        ├── policy_card.dart
+        └── member_list_item.dart
+```
+
+## Implementation Guide
+
+### 1. Firebase Configuration (lib/config/firebase_config.dart)
+```dart
+import 'package:firebase_core/firebase_core.dart';
+
+class FirebaseConfig {
+  static const FirebaseOptions firebaseOptions = FirebaseOptions(
+    apiKey: "AIzaSyDibpkuzUookkbMVIoHqe_rYu1umY1qF-4",
+    authDomain: "data-b93ed.firebaseapp.com",
+    databaseURL: "https://data-b93ed-default-rtdb.firebaseio.com",
+    projectId: "data-b93ed",
+    storageBucket: "data-b93ed.appspot.com",
+    messagingSenderId: "218236841715",
+    appId: "1:218236841715:web:40db92685356afaa701186"
+  );
+}
+```
+
+### 2. Models
+
+#### Member Model (lib/models/member.dart)
+```dart
+class Member {
+  final String id;
+  final String role;
+  final String fullName;
+  final String idNumber;
+  final String? relationshipType;
+  final String? relationshipDescription;
+  final double? benefitPercentage;
+  final String? status;
+
+  Member({
+    required this.id,
+    required this.role,
+    required this.fullName,
+    required this.idNumber,
+    this.relationshipType,
+    this.relationshipDescription,
+    this.benefitPercentage,
+    this.status,
+  });
+
+  factory Member.fromJson(Map<String, dynamic> json) {
+    return Member(
+      id: json['id'] ?? '',
+      role: json['role'] ?? '',
+      fullName: json['fullName'] ?? '',
+      idNumber: json['idNumber'] ?? '',
+      relationshipType: json['relationshipType'],
+      relationshipDescription: json['relationshipDescription'],
+      benefitPercentage: json['benefitPercentage']?.toDouble(),
+      status: json['status'],
+    );
+  }
+}
+```
+
+### 3. Services
+
+#### Member Service (lib/services/member_service.dart)
+```dart
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+class MemberService {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  Future<Map<String, dynamic>> getAllMembersForContract(String contractNumber) async {
+    try {
+      // Query member_contract_relationships
+      final relationshipsSnapshot = await _firestore
+          .collection('member_contract_relationships')
+          .where('contract_number', isEqualTo: contractNumber)
+          .get();
+
+      if (relationshipsSnapshot.docs.isEmpty) {
+        return {
+          'mainMember': null,
+          'dependents': [],
+          'beneficiaries': []
+        };
+      }
+
+      // Organize relationships by role
+      final Map<String, List<DocumentSnapshot>> relationshipsByRole = {
+        'Main Member': [],
+        'Dependent': [],
+        'Beneficiary': [],
+      };
+
+      for (var doc in relationshipsSnapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        relationshipsByRole[data['role']]?.add(doc);
+      }
+
+      // Get main member
+      Member? mainMember;
+      if (relationshipsByRole['Main Member']!.isNotEmpty) {
+        final mainMemberRel = relationshipsByRole['Main Member']![0];
+        final memberDoc = await _firestore
+            .collection('Members')
+            .doc(mainMemberRel['member_id'])
+            .get();
+        
+        if (memberDoc.exists) {
+          mainMember = Member.fromJson({
+            'id': memberDoc.id,
+            'role': 'Main Member',
+            ...memberDoc.data()!
+          });
+        }
+      }
+
+      // Get beneficiaries with additional info
+      final beneficiaries = await Future.wait(
+        relationshipsByRole['Beneficiary']!.map((doc) async {
+          final relData = doc.data() as Map<String, dynamic>;
+          
+          // Get member details
+          final memberDoc = await _firestore
+              .collection('Members')
+              .doc(relData['member_id'])
+              .get();
+          
+          if (!memberDoc.exists) return null;
+
+          // Get benefit percentage
+          final benefitSnapshot = await _firestore
+              .collection('Benefit')
+              .where('relationship_id', isEqualTo: doc.id)
+              .get();
+
+          // Get relationship details
+          final relationshipSnapshot = await _firestore
+              .collection('Relationship')
+              .where('relationship_id', isEqualTo: doc.id)
+              .get();
+
+          return Member.fromJson({
+            'id': memberDoc.id,
+            'role': 'Beneficiary',
+            ...memberDoc.data()!,
+            'benefitPercentage': benefitSnapshot.docs.isNotEmpty 
+                ? benefitSnapshot.docs.first['percentage'] 
+                : 0,
+            'relationshipType': relationshipSnapshot.docs.isNotEmpty 
+                ? relationshipSnapshot.docs.first['type'] 
+                : '',
+            'relationshipDescription': relationshipSnapshot.docs.isNotEmpty 
+                ? relationshipSnapshot.docs.first['description'] 
+                : '',
+          });
+        })
+      );
+
+      // Get dependents with additional info
+      final dependents = await Future.wait(
+        relationshipsByRole['Dependent']!.map((doc) async {
+          final relData = doc.data() as Map<String, dynamic>;
+          
+          // Get member details
+          final memberDoc = await _firestore
+              .collection('Members')
+              .doc(relData['member_id'])
+              .get();
+          
+          if (!memberDoc.exists) return null;
+
+          // Get status
+          final statusSnapshot = await _firestore
+              .collection('Status')
+              .where('relationship_id', isEqualTo: doc.id)
+              .get();
+
+          // Get relationship details
+          final relationshipSnapshot = await _firestore
+              .collection('Relationship')
+              .where('relationship_id', isEqualTo: doc.id)
+              .get();
+
+          return Member.fromJson({
+            'id': memberDoc.id,
+            'role': 'Dependent',
+            ...memberDoc.data()!,
+            'status': statusSnapshot.docs.isNotEmpty 
+                ? statusSnapshot.docs.first['status'] 
+                : 'Unknown',
+            'relationshipType': relationshipSnapshot.docs.isNotEmpty 
+                ? relationshipSnapshot.docs.first['type'] 
+                : '',
+            'relationshipDescription': relationshipSnapshot.docs.isNotEmpty 
+                ? relationshipSnapshot.docs.first['description'] 
+                : '',
+          });
+        })
+      );
+
+      return {
+        'mainMember': mainMember,
+        'dependents': dependents.whereType<Member>().toList(),
+        'beneficiaries': beneficiaries.whereType<Member>().toList(),
+      };
+    } catch (e) {
+      print('Error getting members: $e');
+      rethrow;
+    }
+  }
+}
+```
+
+### 4. Screens
+
+#### Policy Details Screen (lib/screens/policy/policy_details_screen.dart)
+```dart
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+class PolicyDetailsScreen extends StatefulWidget {
+  @override
+  _PolicyDetailsScreenState createState() => _PolicyDetailsScreenState();
+}
+
+class _PolicyDetailsScreenState extends State<PolicyDetailsScreen> {
+  final MemberService _memberService = MemberService();
+  Map<String, dynamic>? _memberData;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMembers();
+  }
+
+  Future<void> _loadMembers() async {
+    try {
+      final contractNumber = Provider.of<AuthProvider>(context, listen: false).contractNumber;
+      final members = await _memberService.getAllMembersForContract(contractNumber);
+      setState(() {
+        _memberData = members;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error loading policy details'))
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Center(child: CircularProgressIndicator());
+    }
+
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text('Policy Details'),
+          bottom: TabBar(
+            tabs: [
+              Tab(text: 'Main Member'),
+              Tab(text: 'Beneficiaries'),
+              Tab(text: 'Dependents'),
+            ],
+          ),
+        ),
+        body: TabBarView(
+          children: [
+            // Main Member Tab
+            _buildMainMemberTab(),
+            // Beneficiaries Tab
+            _buildBeneficiariesTab(),
+            // Dependents Tab
+            _buildDependentsTab(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMainMemberTab() {
+    final mainMember = _memberData?['mainMember'];
+    if (mainMember == null) {
+      return Center(child: Text('No main member found'));
+    }
+
+    return SingleChildScrollView(
+      padding: EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Full Name: ${mainMember.fullName}'),
+          Text('ID Number: ${mainMember.idNumber}'),
+          // Add more main member details
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBeneficiariesTab() {
+    final beneficiaries = _memberData?['beneficiaries'] ?? [];
+    if (beneficiaries.isEmpty) {
+      return Center(child: Text('No beneficiaries found'));
+    }
+
+    return ListView.builder(
+      itemCount: beneficiaries.length,
+      itemBuilder: (context, index) {
+        final beneficiary = beneficiaries[index];
+        return Card(
+          margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            title: Text(beneficiary.fullName),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Relationship: ${beneficiary.relationshipType}'),
+                Text('Benefit %: ${beneficiary.benefitPercentage}%'),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDependentsTab() {
+    final dependents = _memberData?['dependents'] ?? [];
+    if (dependents.isEmpty) {
+      return Center(child: Text('No dependents found'));
+    }
+
+    return ListView.builder(
+      itemCount: dependents.length,
+      itemBuilder: (context, index) {
+        final dependent = dependents[index];
+        return Card(
+          margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: ListTile(
+            title: Text(dependent.fullName),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Relationship: ${dependent.relationshipType}'),
+                Text('Status: ${dependent.status}'),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+```
+
+### 5. Main App (lib/main.dart)
+```dart
+import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:provider/provider.dart';
+import 'config/firebase_config.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: FirebaseConfig.firebaseOptions,
+  );
+  
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => MemberProvider()),
+      ],
+      child: InsuranceApp(),
+    ),
+  );
+}
+
+class InsuranceApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Insurance Management',
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        visualDensity: VisualDensity.adaptivePlatformDensity,
+      ),
+      home: SplashScreen(),
+      routes: {
+        '/login': (context) => LoginScreen(),
+        '/home': (context) => HomeScreen(),
+        '/policy-details': (context) => PolicyDetailsScreen(),
+        '/claims': (context) => ClaimsListScreen(),
+      },
+    );
+  }
+}
+```
+
+## Build and Run Instructions
+
+1. **Setup Firebase**
+   - Create a new Firebase project (or use existing)
+   - Download and add google-services.json to android/app/
+   - Add GoogleService-Info.plist for iOS
+   - Enable Authentication and Firestore in Firebase Console
+
+2. **Install Dependencies**
+```bash
+flutter pub get
+```
+
+3. **Run the App**
+```bash
+# For development
+flutter run
+
+# For release build
+flutter build apk  # Android
+flutter build ios  # iOS
+```
+
+## Testing
+
+1. **Unit Tests**
+Create tests in the `test` directory for services and models:
+```dart
+// test/services/member_service_test.dart
+void main() {
+  group('MemberService Tests', () {
+    test('getAllMembersForContract returns correct structure', () async {
+      // Add test implementation
+    });
+  });
+}
+```
+
+2. **Widget Tests**
+Create tests for widgets and screens:
+```dart
+// test/screens/policy_details_screen_test.dart
+void main() {
+  testWidgets('PolicyDetailsScreen shows all tabs', (WidgetTester tester) async {
+    // Add test implementation
+  });
+}
+```
+
+## Security Considerations
+
+1. **Data Security**
+   - Implement proper Firebase Security Rules
+   - Use secure storage for sensitive data
+   - Implement proper authentication checks
+
+2. **Error Handling**
+   - Implement proper error handling and user feedback
+   - Log errors appropriately
+   - Handle network connectivity issues
+
+## Performance Optimization
+
+1. **Firebase Queries**
+   - Use pagination for large lists
+   - Implement caching where appropriate
+   - Use batch operations for multiple updates
+
+2. **UI Performance**
+   - Use const constructors where possible
+   - Implement lazy loading for images
+   - Use proper state management techniques
+
+## Deployment Checklist
+
+1. **Pre-release**
+   - Update app version
+   - Run tests
+   - Check performance metrics
+   - Review security settings
+
+2. **Release**
+   - Generate signed APK/IPA
+   - Update store listings
+   - Prepare release notes
+   - Submit to app stores 

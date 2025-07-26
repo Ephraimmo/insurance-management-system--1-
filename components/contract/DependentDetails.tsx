@@ -5,45 +5,16 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { DependentForm } from "./DependentForm"
-import { collection, addDoc, query, where, getDocs, doc, getDoc, deleteDoc } from "firebase/firestore"
+import { collection, addDoc, query, where, getDocs, doc, getDoc, deleteDoc, updateDoc, onSnapshot } from "firebase/firestore"
 import { db } from "@/src/FirebaseConfg"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Loader2, AlertCircle, UserPlus, UserX, UserCheck, AlertTriangle, Plus } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { createMemberRelationship } from "@/lib/member-relationship-service"
+import { toast } from "@/components/ui/use-toast"
+import { DependentData } from "@/types/dependent"
 
 type ErrorState = { [key: string]: string } | null;
-
-type DependentData = {
-  id?: string
-  isDeleting?: boolean
-  personalInfo: {
-    firstName: string
-    lastName: string
-    initials: string
-    dateOfBirth: Date | null
-    gender: string
-    relationshipToMainMember: string
-    nationality: string
-    idType: "South African ID" | "Passport"
-    idNumber: string
-    dependentStatus: "Active" | "Inactive"
-    medicalAidNumber?: string
-    employer?: string
-    school?: string
-    idDocumentUrl: string | null
-  }
-  contactDetails: Array<{
-    type: "Email" | "Phone Number"
-    value: string
-  }>
-  addressDetails: {
-    streetAddress: string
-    city: string
-    stateProvince: string
-    postalCode: string
-    country: string
-  }
-}
 
 type DependentDetailsProps = {
   dependents: DependentData[]
@@ -55,6 +26,7 @@ type DependentDetailsProps = {
 const emptyDependent: DependentData = {
   isDeleting: false,
   personalInfo: {
+    title: "",
     firstName: "",
     lastName: "",
     initials: "",
@@ -119,97 +91,124 @@ const saveDependentToFirestore = async (
   mainMemberIdNumber: string
 ): Promise<string> => {
   try {
-    // First, save personal info to Dependents collection
-    const dependentRef = await addDoc(collection(db, 'Dependents'), {
-      ...data.personalInfo,
-      contractNumber,
-      mainMemberIdNumber,
+    // 1. Save basic info in Members collection
+    const memberRef = await addDoc(collection(db, 'Members'), {
+      firstName: data.personalInfo.firstName,
+      lastName: data.personalInfo.lastName,
+      initials: data.personalInfo.initials,
+      dateOfBirth: data.personalInfo.dateOfBirth,
+      gender: data.personalInfo.gender,
+      nationality: data.personalInfo.nationality,
+      idType: data.personalInfo.idType,
+      idNumber: data.personalInfo.idNumber,
+      medicalAidNumber: data.personalInfo.medicalAidNumber,
+      employer: data.personalInfo.employer,
+      school: data.personalInfo.school,
+      idDocumentUrl: data.personalInfo.idDocumentUrl,
       type: 'Dependent',
       createdAt: new Date(),
       updatedAt: new Date()
-    })
+    });
 
-    // Save contact details with the dependent reference
-    const contactPromises = data.contactDetails.map(contact =>
+    // 2. Create member_contract_relationships record
+    const relationshipRef = await addDoc(collection(db, 'member_contract_relationships'), {
+      member_id: memberRef.id,
+      contract_number: contractNumber,
+      role: 'Dependent',
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    // 3. Create Relationship record with the relationship type
+    await addDoc(collection(db, 'Relationship'), {
+      member_contract_relationship_id: relationshipRef.id,
+      relationshipType: data.personalInfo.relationshipToMainMember,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    // 4. Create Status record
+    await addDoc(collection(db, 'Status'), {
+      member_contract_relationship_id: relationshipRef.id,
+      status: data.personalInfo.dependentStatus,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    // 5. Save contact details
+    await Promise.all(data.contactDetails.map(contact =>
       addDoc(collection(db, 'Contacts'), {
         ...contact,
-        dependentId: dependentRef.id,
-        contractNumber,
-        mainMemberIdNumber,
+        memberId: memberRef.id,
+        memberIdNumber: data.personalInfo.idNumber,
         type: 'Dependent',
         createdAt: new Date(),
         updatedAt: new Date()
       })
-    )
+    ));
 
-    // Save address details with the dependent reference
+    // 6. Save address details
     await addDoc(collection(db, 'Address'), {
       ...data.addressDetails,
-      dependentId: dependentRef.id,
-      contractNumber,
-      mainMemberIdNumber,
+      memberId: memberRef.id,
+      memberIdNumber: data.personalInfo.idNumber,
       type: 'Dependent',
       createdAt: new Date(),
       updatedAt: new Date()
-    })
+    });
 
-    // Wait for all contact details to be saved
-    await Promise.all(contactPromises)
-
-    // Return the Firestore document ID
-    return dependentRef.id
+    return memberRef.id;
   } catch (error) {
-    console.error('Error saving dependent:', error)
-    throw error
+    console.error('Error saving dependent:', error);
+    throw error;
   }
-}
+};
 
 const removeDependentFromFirestore = async (dependentId: string, contractNumber: string): Promise<void> => {
   try {
-    // 1. Delete address records
-    const addressQuery = query(
-      collection(db, 'Address'),
-      where('dependentId', '==', dependentId),
-      where('contractNumber', '==', contractNumber),
-      where('type', '==', 'Dependent')
-    )
-    const addressSnapshot = await getDocs(addressQuery)
-    const addressDeletions = addressSnapshot.docs.map(doc => 
-      deleteDoc(doc.ref)
-    )
-    await Promise.all(addressDeletions)
+    // 1. Get the member_contract_relationship record
+    const relationshipsRef = collection(db, 'member_contract_relationships');
+    const relationshipQuery = query(
+      relationshipsRef,
+      where('member_id', '==', dependentId),
+      where('contract_number', '==', contractNumber),
+      where('role', '==', 'Dependent')
+    );
+    const relationshipSnapshot = await getDocs(relationshipQuery);
+    
+    if (!relationshipSnapshot.empty) {
+      const memberContractRelationshipId = relationshipSnapshot.docs[0].id;
 
-    // 2. Delete contact records
-    const contactsQuery = query(
-      collection(db, 'Contacts'),
-      where('dependentId', '==', dependentId),
-      where('contractNumber', '==', contractNumber),
-      where('type', '==', 'Dependent')
-    )
-    const contactsSnapshot = await getDocs(contactsQuery)
-    const contactDeletions = contactsSnapshot.docs.map(doc => 
-      deleteDoc(doc.ref)
-    )
-    await Promise.all(contactDeletions)
+      // 2. Delete the Relationship record
+      const relationshipTypeQuery = query(
+        collection(db, 'Relationship'),
+        where('member_contract_relationship_id', '==', memberContractRelationshipId)
+      );
+      const relationshipTypeSnapshot = await getDocs(relationshipTypeQuery);
+      if (!relationshipTypeSnapshot.empty) {
+        await deleteDoc(relationshipTypeSnapshot.docs[0].ref);
+      }
 
-    // 3. Finally, delete the dependent record
-    const dependentQuery = query(
-      collection(db, 'Dependents'),
-      where('id', '==', dependentId),
-      where('contractNumber', '==', contractNumber),
-      where('type', '==', 'Dependent')
-    )
-    const dependentSnapshot = await getDocs(dependentQuery)
-    if (!dependentSnapshot.empty) {
-      await deleteDoc(dependentSnapshot.docs[0].ref)
+      // 3. Delete the Status record
+      const statusQuery = query(
+        collection(db, 'Status'),
+        where('member_contract_relationship_id', '==', memberContractRelationshipId)
+      );
+      const statusSnapshot = await getDocs(statusQuery);
+      if (!statusSnapshot.empty) {
+        await deleteDoc(statusSnapshot.docs[0].ref);
+      }
+
+      // 4. Finally delete the member_contract_relationship record
+      await deleteDoc(relationshipSnapshot.docs[0].ref);
     }
   } catch (error) {
-    console.error('Error removing dependent:', error)
-    throw new Error('Failed to remove dependent and related records')
+    console.error('Error removing dependent:', error);
+    throw new Error('Failed to remove dependent relationship records');
   }
-}
+};
 
-const validateDependentData = (data: DependentData): string[] => {
+const validateDependentData = (data: DependentData, dependents: DependentData[]): string[] => {
   const errors: string[] = [];
 
   // Personal Information Validation (Required)
@@ -308,6 +307,8 @@ export function DependentDetails({
     isDuplicate: false,
     message: null
   });
+  const [relationships, setRelationships] = useState<{ [key: string]: string }>({})
+  const [statuses, setStatuses] = useState<{ [key: string]: string }>({})
 
   // Add effect to check policies limit on mount
   useEffect(() => {
@@ -328,8 +329,168 @@ export function DependentDetails({
     checkpolicies()
   }, [contractNumber, dependents.length])
 
+  // Add effect for real-time updates
+  useEffect(() => {
+    if (!contractNumber) return;
+
+    // Set up real-time listener for member_contract_relationships
+    const relationshipsRef = collection(db, 'member_contract_relationships');
+    const relationshipQuery = query(
+      relationshipsRef,
+      where('contract_number', '==', contractNumber),
+      where('role', '==', 'Dependent')
+    );
+
+    const unsubscribe = onSnapshot(relationshipQuery, async (snapshot) => {
+      try {
+        const updatedDependents: DependentData[] = [];
+        
+        for (const relationshipDoc of snapshot.docs) {
+          const memberId = relationshipDoc.data().member_id;
+          
+          // Fetch member data
+          const memberDoc = await getDoc(doc(db, 'Members', memberId));
+          if (!memberDoc.exists()) continue;
+          
+          const memberData = memberDoc.data();
+
+          // Fetch contact details
+          const contactsQuery = query(
+            collection(db, 'Contacts'),
+            where('memberId', '==', memberId)
+          );
+          const contactsSnapshot = await getDocs(contactsQuery);
+          const contactDetails = contactsSnapshot.docs.map(doc => ({
+            type: doc.data().type as "Email" | "Phone Number",
+            value: doc.data().value
+          }));
+
+          // Fetch address details
+          const addressQuery = query(
+            collection(db, 'Address'),
+            where('memberId', '==', memberId)
+          );
+          const addressSnapshot = await getDocs(addressQuery);
+          const addressData = addressSnapshot.docs[0]?.data();
+
+          const dependentData: DependentData = {
+            id: memberId,
+            personalInfo: {
+              title: memberData.title || '',
+              firstName: memberData.firstName || '',
+              lastName: memberData.lastName || '',
+              initials: memberData.initials || '',
+              dateOfBirth: memberData.dateOfBirth ? new Date(memberData.dateOfBirth.seconds * 1000) : null,
+              gender: memberData.gender || '',
+              relationshipToMainMember: memberData.relationshipToMainMember || '',
+              nationality: memberData.nationality || '',
+              idType: memberData.idType as "South African ID" | "Passport",
+              idNumber: memberData.idNumber || '',
+              dependentStatus: memberData.dependentStatus || 'Active',
+              medicalAidNumber: memberData.medicalAidNumber || '',
+              employer: memberData.employer || '',
+              school: memberData.school || '',
+              idDocumentUrl: memberData.idDocumentUrl || null
+            },
+            contactDetails,
+            addressDetails: addressData ? {
+              streetAddress: addressData.streetAddress || '',
+              city: addressData.city || '',
+              stateProvince: addressData.stateProvince || '',
+              postalCode: addressData.postalCode || '',
+              country: addressData.country || ''
+            } : {
+              streetAddress: '',
+              city: '',
+              stateProvince: '',
+              postalCode: '',
+              country: ''
+            }
+          };
+
+          updatedDependents.push(dependentData);
+        }
+
+        // Update local state with the latest data
+        updateDependents(updatedDependents);
+      } catch (error) {
+        console.error('Error in real-time update:', error);
+      }
+    });
+
+    // Cleanup subscription on unmount
+    return () => unsubscribe();
+  }, [contractNumber, updateDependents]);
+
+  // Add useEffect to fetch relationships and statuses
+  useEffect(() => {
+    const fetchRelationshipsAndStatuses = async () => {
+      if (!contractNumber) return;
+      
+      try {
+        // Get all member-contract relationships for this contract
+        const relationshipsRef = collection(db, 'member_contract_relationships');
+        const relationshipsQuery = query(
+          relationshipsRef,
+          where('contract_number', '==', contractNumber),
+          where('role', '==', 'Dependent')
+        );
+        const relationshipsSnapshot = await getDocs(relationshipsQuery);
+        
+        // For each relationship, get the relationship type and status
+        const relationshipPromises = relationshipsSnapshot.docs.map(async (doc) => {
+          const memberContractRelationshipId = doc.id;
+          const memberId = doc.data().member_id;
+          
+          // Get the relationship type from Relationship collection
+          const relationshipTypeQuery = query(
+            collection(db, 'Relationship'),
+            where('member_contract_relationship_id', '==', memberContractRelationshipId)
+          );
+          const relationshipTypeSnapshot = await getDocs(relationshipTypeQuery);
+          
+          // Get the status from Status collection
+          const statusQuery = query(
+            collection(db, 'Status'),
+            where('member_contract_relationship_id', '==', memberContractRelationshipId)
+          );
+          const statusSnapshot = await getDocs(statusQuery);
+          
+          return {
+            memberId,
+            relationshipType: relationshipTypeSnapshot.empty ? null : relationshipTypeSnapshot.docs[0].data().relationshipType,
+            status: statusSnapshot.empty ? 'Active' : statusSnapshot.docs[0].data().status
+          };
+        });
+        
+        const results = await Promise.all(relationshipPromises);
+        
+        // Create separate maps for relationships and statuses
+        const relationshipMap: { [key: string]: string } = {};
+        const statusMap: { [key: string]: string } = {};
+        
+        results.forEach(result => {
+          if (result) {
+            if (result.relationshipType) {
+              relationshipMap[result.memberId] = result.relationshipType;
+            }
+            statusMap[result.memberId] = result.status;
+          }
+        });
+        
+        setRelationships(relationshipMap);
+        setStatuses(statusMap);
+      } catch (error) {
+        console.error('Error fetching relationships and statuses:', error);
+      }
+    };
+
+    fetchRelationshipsAndStatuses();
+  }, [contractNumber, dependents]);
+
   // Add function to check for duplicate dependents
   const checkDuplicateDependent = async (idNumber: string): Promise<boolean> => {
+    
     setDuplicateCheck(prev => ({ ...prev, checking: true }));
     try {
       const dependentsQuery = query(
@@ -358,6 +519,99 @@ export function DependentDetails({
     }
   };
 
+  // Add function to update existing member
+  const updateExistingMember = async (memberId: string) => {
+    if (!formData) return;
+    
+    try {
+      const memberRef = doc(db, 'Members', memberId);
+      await updateDoc(memberRef, {
+        ...formData.personalInfo,
+        updatedAt: new Date()
+      });
+
+      // Get member_contract_relationships record
+      const relationshipsRef = collection(db, 'member_contract_relationships');
+      const relationshipQuery = query(
+        relationshipsRef,
+        where('member_id', '==', memberId),
+        where('contract_number', '==', contractNumber),
+        where('role', '==', 'Dependent')
+      );
+      const relationshipSnapshot = await getDocs(relationshipQuery);
+      
+      if (!relationshipSnapshot.empty) {
+        const memberContractRelationshipId = relationshipSnapshot.docs[0].id;
+        
+        // Find the Relationship record using member_contract_relationship_id
+        const relationshipTypeQuery = query(
+          collection(db, 'Relationship'),
+          where('member_contract_relationship_id', '==', memberContractRelationshipId)
+        );
+        const relationshipTypeSnapshot = await getDocs(relationshipTypeQuery);
+        
+        if (!relationshipTypeSnapshot.empty) {
+          // Update the existing Relationship record
+          await updateDoc(relationshipTypeSnapshot.docs[0].ref, {
+            relationshipType: formData.personalInfo.relationshipToMainMember,
+            updatedAt: new Date()
+          });
+        } else {
+          // Create new Relationship record if it doesn't exist
+          await addDoc(collection(db, 'Relationship'), {
+            member_contract_relationship_id: memberContractRelationshipId,
+            relationshipType: formData.personalInfo.relationshipToMainMember,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+        }
+      }
+
+      // Update contact details
+      const contactsRef = collection(db, 'Contacts');
+      const existingContactsQuery = query(contactsRef, where('memberId', '==', memberId));
+      const existingContacts = await getDocs(existingContactsQuery);
+      
+      // Delete existing contacts
+      await Promise.all(existingContacts.docs.map(doc => deleteDoc(doc.ref)));
+      
+      // Add new contacts
+      await Promise.all(formData.contactDetails.map(contact =>
+        addDoc(contactsRef, {
+          ...contact,
+          memberId,
+          memberIdNumber: formData.personalInfo.idNumber,
+          type: 'Dependent',
+          updatedAt: new Date()
+        })
+      ));
+
+      // Update address
+      const addressRef = collection(db, 'Address');
+      const existingAddressQuery = query(addressRef, where('memberId', '==', memberId));
+      const existingAddress = await getDocs(existingAddressQuery);
+      
+      if (!existingAddress.empty) {
+        await updateDoc(existingAddress.docs[0].ref, {
+          ...formData.addressDetails,
+          updatedAt: new Date()
+        });
+      } else {
+        await addDoc(addressRef, {
+          ...formData.addressDetails,
+          memberId,
+          memberIdNumber: formData.personalInfo.idNumber,
+          type: 'Dependent',
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+      }
+    } catch (error) {
+      console.error('Error updating member:', error);
+      throw new Error('Failed to update member details');
+    }
+  };
+
   const handleAddDependent = async () => {
     try {
       if (!contractNumber || !mainMemberIdNumber) {
@@ -368,33 +622,9 @@ export function DependentDetails({
       setIsSaving(true)
       setError(null)
 
-      // Check if we can add more dependents
-      const canAddMore = await checkDependentLimit(contractNumber, dependents.length)
-      
-      if (!canAddMore) {
-        setError(`Maximum number of dependents (${policiesLimit}) reached for this policies`)
-        setIsSaving(false)
-        return
-      }
-
-      // Auto-fill date of birth from ID number
-      if (formData.personalInfo.idType === "South African ID" && formData.personalInfo.idNumber) {
-        const idNumber = formData.personalInfo.idNumber.trim();
-        if (idNumber.match(/^\d{6}/)) {
-          const yearPrefix = parseInt(idNumber.substring(0, 2)) > 22 ? "19" : "20";
-          const year = yearPrefix + idNumber.substring(0, 2);
-          const month = idNumber.substring(2, 4);
-          const day = idNumber.substring(4, 6);
-          
-          const dateOfBirth = new Date(`${year}-${month}-${day}`);
-          if (!isNaN(dateOfBirth.getTime())) {
-            formData.personalInfo.dateOfBirth = dateOfBirth;
-          }
-        }
-      }
-
       // Validate all required fields and data
-      const validationErrors = validateDependentData(formData)
+      const validationErrors = validateDependentData(formData, dependents)
+      
       if (validationErrors.length > 0) {
         const fieldErrors: { [key: string]: string } = {};
 
@@ -436,9 +666,13 @@ export function DependentDetails({
         setError(
           <DependentForm
             data={formData}
-            updateData={setFormData}
+            updateData={(data) => {
+              setFormData(data);
+              setError(null);
+            }}
             validationErrors={fieldErrors}
             mainMemberIdNumber={mainMemberIdNumber}
+            contractNumber={contractNumber}
           />
         );
         setIsSaving(false);
@@ -446,15 +680,60 @@ export function DependentDetails({
       }
 
       // Check for duplicates
-      const isDuplicate = await checkDuplicateDependent(formData.personalInfo.idNumber);
+      const isDuplicate = await checkDuplicateDependent(formData.personalInfo.idNumber)
       if (isDuplicate) {
-        setError('This person is already registered as a dependent');
-        return;
+        setError('This person is already registered as a dependent')
+        setIsSaving(false)
+        return
       }
 
-      // Save dependent to Firestore
-      const dependentId = await saveDependentToFirestore(formData, contractNumber, mainMemberIdNumber)
-      
+      let dependentId: string;
+
+      // Check if this is an auto-populated member
+      const membersRef = collection(db, 'Members');
+      const memberQuery = query(
+        membersRef,
+        where('idNumber', '==', formData.personalInfo.idNumber),
+        where('idType', '==', formData.personalInfo.idType)
+      );
+      const memberSnapshot = await getDocs(memberQuery);
+
+      if (!memberSnapshot.empty) {
+        // This is an existing member - create relationship records
+        dependentId = memberSnapshot.docs[0].id;
+
+        // 1. Create member_contract_relationships record
+        const relationshipRef = await addDoc(collection(db, 'member_contract_relationships'), {
+          member_id: dependentId,
+          contract_number: contractNumber,
+          role: 'Dependent',
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+
+        // 2. Create Relationship record
+        const relationshipTypeRef = collection(db, 'Relationship');
+        await addDoc(relationshipTypeRef, {
+          member_contract_relationship_id: relationshipRef.id,
+          relationshipType: formData.personalInfo.relationshipToMainMember,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+
+        // 3. Create Status record
+        const statusRef = collection(db, 'Status');
+        await addDoc(statusRef, {
+          member_contract_relationship_id: relationshipRef.id,
+          status: formData.personalInfo.dependentStatus,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+
+      } else {
+        // This is a new member - save all details
+        dependentId = await saveDependentToFirestore(formData, contractNumber, mainMemberIdNumber);
+      }
+
       // Update local state with the new dependent
       const newDependent = {
         ...formData,
@@ -462,13 +741,20 @@ export function DependentDetails({
       }
       updateDependents([...dependents, newDependent])
       
+      // Show success message
+      toast({
+        title: "Success",
+        description: "Dependent added successfully",
+        variant: "default",
+      });
+      
       // Reset form and close dialog
       setIsDialogOpen(false)
       setFormData(emptyDependent)
       setError(null)
     } catch (error) {
       console.error('Error adding dependent:', error)
-      setError(error instanceof Error ? error.message : 'Failed to add dependent. Please try again.')
+      setError('Failed to add dependent. Please try again.')
     } finally {
       setIsSaving(false)
     }
@@ -477,91 +763,120 @@ export function DependentDetails({
   const handleEditDependent = async () => {
     try {
       if (!contractNumber || !mainMemberIdNumber) {
-        setError('Contract information is missing')
-        return
-      }
-
-      setIsSaving(true)
-      setError(null)
-
-      // Validate required fields
-      const validationErrors = validateDependentData(formData);
-      if (validationErrors.length > 0) {
-        const fieldErrors: { [key: string]: string } = {};
-
-        validationErrors.forEach(error => {
-          // Personal Information
-          if (error.includes("First Name")) fieldErrors.firstName = error;
-          if (error.includes("Last Name")) fieldErrors.lastName = error;
-          if (error.includes("Initials")) fieldErrors.initials = error;
-          if (error.includes("Date of Birth")) fieldErrors.dateOfBirth = error;
-          if (error.includes("Gender")) fieldErrors.gender = error;
-          if (error.includes("Relationship")) fieldErrors.relationshipToMainMember = error;
-          if (error.includes("Nationality")) fieldErrors.nationality = error;
-          if (error.includes("Type of ID")) fieldErrors.idType = error;
-          if (error.includes("ID Number") || error.includes("South African ID number")) fieldErrors.idNumber = error;
-          if (error.includes("Dependent Status")) fieldErrors.dependentStatus = error;
-          if (error.includes("Child dependents")) fieldErrors.relationshipToMainMember = error;
-
-          // Contact Details
-          if (error.includes("contact")) {
-            const contactIndex = error.match(/contact #(\d+)/)?.[1];
-            if (contactIndex) {
-              const index = parseInt(contactIndex) - 1;
-              if (error.includes("type")) fieldErrors[`contact${index}Type`] = error;
-              if (error.includes("value") || error.includes("email") || error.includes("phone")) {
-                fieldErrors[`contact${index}Value`] = error;
-              }
-            }
-          }
-
-          // Address Details
-          if (error.includes("Street Address")) fieldErrors.streetAddress = error;
-          if (error.includes("City")) fieldErrors.city = error;
-          if (error.includes("State/Province")) fieldErrors.stateProvince = error;
-          if (error.includes("Postal Code") || error.includes("postal code")) fieldErrors.postalCode = error;
-          if (error.includes("Country")) fieldErrors.country = error;
-        });
-
-        // Pass the field errors to the form
-        setError(
-          <DependentForm
-            data={formData}
-            updateData={setFormData}
-            validationErrors={fieldErrors}
-            mainMemberIdNumber={mainMemberIdNumber}
-          />
-        );
-        setIsSaving(false);
+        setError('Contract information is missing');
         return;
       }
 
+      setIsSaving(true);
+      setError(null);
+
       if (editingIndex !== null) {
-        // Update dependent in Firestore
-        const dependentId = await saveDependentToFirestore(formData, contractNumber, mainMemberIdNumber)
+        // 1. Update basic info in Members collection
+        const membersRef = collection(db, 'Members');
+        const memberQuery = query(
+          membersRef,
+          where('idNumber', '==', formData.personalInfo.idNumber),
+          where('idType', '==', formData.personalInfo.idType)
+        );
         
-        // Update local state
-        const updatedDependents = [...dependents]
-        updatedDependents[editingIndex] = {
-          ...formData,
-          id: dependentId
+        const memberSnapshot = await getDocs(memberQuery);
+        if (memberSnapshot.empty) {
+          throw new Error('Member not found');
         }
-        updateDependents(updatedDependents)
+        const memberId = memberSnapshot.docs[0].id;
         
-        // Reset form and close dialog
-        setIsDialogOpen(false)
-        setEditingDependent(null)
-        setEditingIndex(null)
-        setFormData(emptyDependent)
-        setError(null)
+        // Update member in Members collection
+        await updateDoc(doc(db, 'Members', memberId), {
+          ...formData.personalInfo,
+          updatedAt: new Date()
+        });
+
+        // 2. Get member_contract_relationships record
+        const relationshipsRef = collection(db, 'member_contract_relationships');
+        const relationshipQuery = query(
+          relationshipsRef,
+          where('member_id', '==', memberId),
+          where('contract_number', '==', contractNumber),
+          where('role', '==', 'Dependent')
+        );
+        const relationshipSnapshot = await getDocs(relationshipQuery);
+        
+        if (!relationshipSnapshot.empty) {
+          const memberContractRelationshipId = relationshipSnapshot.docs[0].id;
+          
+          // 3. Find and update the Relationship record
+        const relationshipTypeQuery = query(
+            collection(db, 'Relationship'),
+            where('member_contract_relationship_id', '==', memberContractRelationshipId)
+        );
+        const relationshipTypeSnapshot = await getDocs(relationshipTypeQuery);
+        
+          if (!relationshipTypeSnapshot.empty) {
+            // Update existing Relationship record
+            await updateDoc(relationshipTypeSnapshot.docs[0].ref, {
+            relationshipType: formData.personalInfo.relationshipToMainMember,
+              updatedAt: new Date()
+          });
+        } else {
+            // Create new Relationship record if it doesn't exist
+            await addDoc(collection(db, 'Relationship'), {
+              member_contract_relationship_id: memberContractRelationshipId,
+              relationshipType: formData.personalInfo.relationshipToMainMember,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            });
+          }
+        }
+
+        // Update contact details
+        const contactsRef = collection(db, 'Contacts');
+        const existingContactsQuery = query(contactsRef, where('memberId', '==', memberId));
+        const existingContacts = await getDocs(existingContactsQuery);
+        
+        // Delete existing contacts
+        await Promise.all(existingContacts.docs.map(doc => deleteDoc(doc.ref)));
+        
+        // Add new contacts
+        await Promise.all(formData.contactDetails.map(contact =>
+          addDoc(contactsRef, {
+            ...contact,
+            memberId,
+            memberIdNumber: formData.personalInfo.idNumber,
+            createdAt: new Date()
+          })
+        ));
+
+        // Update address
+        const addressRef = collection(db, 'Address');
+        const existingAddressQuery = query(addressRef, where('memberId', '==', memberId));
+        const existingAddress = await getDocs(existingAddressQuery);
+        
+        if (!existingAddress.empty) {
+          await updateDoc(existingAddress.docs[0].ref, {
+            ...formData.addressDetails,
+            updatedAt: new Date()
+          });
+        } else {
+          await addDoc(addressRef, {
+            ...formData.addressDetails,
+            memberId,
+            memberIdNumber: formData.personalInfo.idNumber,
+            createdAt: new Date()
+          });
+        }
       }
     } catch (error) {
-      console.error('Error updating dependent:', error)
-      setError('Failed to update dependent. Please try again.')
+      console.error('Error updating dependent:', error);
+      setError(error instanceof Error ? error.message : 'Failed to update dependent');
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update dependent details. Please try again.",
+        variant: "destructive",
+      });
     } finally {
-      setIsSaving(false)
+      setIsSaving(false);
     }
-  }
+  };
 
   const handleCancel = () => {
     if (!isSaving) {
@@ -697,52 +1012,24 @@ export function DependentDetails({
                     <DependentForm
                       data={editingDependent || formData}
                       updateData={(data) => {
-                        // Auto-fill date of birth when ID number changes
-                        if (data.personalInfo.idType === "South African ID" && 
-                            data.personalInfo.idNumber && 
-                            data.personalInfo.idNumber.length >= 6) {
-                          const idNumber = data.personalInfo.idNumber.trim();
-                          if (idNumber.match(/^\d{6}/)) {
-                            const yearPrefix = parseInt(idNumber.substring(0, 2)) > 22 ? "19" : "20";
-                            const year = yearPrefix + idNumber.substring(0, 2);
-                            const month = idNumber.substring(2, 4);
-                            const day = idNumber.substring(4, 6);
-                            
-                            const dateOfBirth = new Date(`${year}-${month}-${day}`);
-                            if (!isNaN(dateOfBirth.getTime())) {
-                              data.personalInfo.dateOfBirth = dateOfBirth;
-                            }
-                          }
-                        }
                         setFormData(data);
                         setError(null);
                       }}
                       error={typeof error === 'string' ? error : null}
                       mainMemberIdNumber={mainMemberIdNumber}
                       validationErrors={typeof error !== 'string' && React.isValidElement(error) ? error.props.validationErrors : {}}
+                      onCancel={handleCancel}
+                      isEditing={!!editingDependent}
+                      onSave={async () => {
+                        if (editingDependent) {
+                          await handleEditDependent();
+                        } else {
+                          await handleAddDependent();
+                        }
+                      }}
+                      contractNumber={contractNumber}
                     />
-                    <div className="flex justify-end space-x-2 mt-4">
-                      <Button 
-                        variant="outline" 
-                        onClick={handleCancel}
-                        disabled={isSaving}
-                      >
-                        Cancel
-                      </Button>
-                      <Button 
-                        onClick={editingDependent ? handleEditDependent : handleAddDependent}
-                        disabled={isSaving}
-                      >
-                        {isSaving ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            {editingDependent ? 'Updating...' : 'Adding...'}
-                          </>
-                        ) : (
-                          'Save'
-                        )}
-                      </Button>
-                    </div>
+                    
                   </DialogContent>
                 </Dialog>
               </div>
@@ -779,20 +1066,20 @@ export function DependentDetails({
                   {dependent.personalInfo.firstName} {dependent.personalInfo.lastName}
                 </td>
                 <td className="p-4">
-                  {dependent.personalInfo.relationshipToMainMember}
+                  {dependent.id && relationships[dependent.id] ? relationships[dependent.id] : 'Loading...'}
                 </td>
                 <td className="p-4">
                   <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-sm ${
-                    dependent.personalInfo.dependentStatus === 'Active' 
+                    dependent.id && statuses[dependent.id] === 'Active'
                       ? 'bg-green-100 text-green-700' 
                       : 'bg-gray-100 text-gray-700'
                   }`}>
-                    {dependent.personalInfo.dependentStatus === 'Active' ? (
+                    {dependent.id && statuses[dependent.id] === 'Active' ? (
                       <UserCheck className="w-3 h-3" />
                     ) : (
                       <UserX className="w-3 h-3" />
                     )}
-                    {dependent.personalInfo.dependentStatus}
+                    {dependent.id ? statuses[dependent.id] || 'Loading...' : dependent.personalInfo.dependentStatus}
                   </span>
                 </td>
                 <td className="p-4">
@@ -909,26 +1196,30 @@ export function DependentDetails({
                 <p className="text-gray-600">Are you sure you want to remove this dependent? This action cannot be undone.</p>
                 {deletingIndex !== null && (
                   <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
-                    <p className="font-medium">
-                      {dependents[deletingIndex].personalInfo.firstName} {dependents[deletingIndex].personalInfo.lastName}
-                    </p>
-                    <p className="text-sm text-gray-500 mt-1">
-                      {dependents[deletingIndex].personalInfo.relationshipToMainMember} • {dependents[deletingIndex].personalInfo.dependentStatus}
-                    </p>
-                    {dependents[deletingIndex].personalInfo.medicalAidNumber && (
-                      <p className="text-sm text-gray-500 mt-1">
-                        Medical Aid: {dependents[deletingIndex].personalInfo.medicalAidNumber}
-                      </p>
-                    )}
-                    {dependents[deletingIndex].personalInfo.employer && (
-                      <p className="text-sm text-gray-500 mt-1">
-                        Employer: {dependents[deletingIndex].personalInfo.employer}
-                      </p>
-                    )}
-                    {dependents[deletingIndex].personalInfo.school && (
-                      <p className="text-sm text-gray-500 mt-1">
-                        School: {dependents[deletingIndex].personalInfo.school}
-                      </p>
+                    {deletingIndex !== null && dependents[deletingIndex] && (
+                      <>
+                        <p className="font-medium">
+                          {dependents[deletingIndex].personalInfo.firstName} {dependents[deletingIndex].personalInfo.lastName}
+                        </p>
+                        <p className="text-sm text-gray-500 mt-1">
+                          {dependents[deletingIndex].personalInfo.relationshipToMainMember} • {dependents[deletingIndex].personalInfo.dependentStatus}
+                        </p>
+                        {dependents[deletingIndex].personalInfo.medicalAidNumber && (
+                          <p className="text-sm text-gray-500 mt-1">
+                            Medical Aid: {dependents[deletingIndex].personalInfo.medicalAidNumber}
+                          </p>
+                        )}
+                        {dependents[deletingIndex].personalInfo.employer && (
+                          <p className="text-sm text-gray-500 mt-1">
+                            Employer: {dependents[deletingIndex].personalInfo.employer}
+                          </p>
+                        )}
+                        {dependents[deletingIndex].personalInfo.school && (
+                          <p className="text-sm text-gray-500 mt-1">
+                            School: {dependents[deletingIndex].personalInfo.school}
+                          </p>
+                        )}
+                      </>
                     )}
                   </div>
                 )}

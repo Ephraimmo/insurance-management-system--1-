@@ -10,34 +10,62 @@ import { Loader2, AlertCircle, CheckCircle2, XCircle, FileImage, Download, Eye }
 import { useState, useEffect } from "react"
 import { Tabs, TabsList, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableHeader, TableBody, TableCell, TableHead, TableRow } from "@/components/ui/table"
-import { collection, getDocs, query, where, doc, getDoc, updateDoc, orderBy, limit } from "firebase/firestore"
+import { collection, getDocs, query, where, doc, getDoc, updateDoc, orderBy, limit, onSnapshot, deleteDoc, addDoc } from "firebase/firestore"
 import { db } from "@/src/FirebaseConfg"
-import { DocumentData } from 'firebase/firestore'
+import { DocumentData, Timestamp } from 'firebase/firestore'
 import { format } from 'date-fns'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { toast } from "@/components/ui/use-toast"
+import { getContractRelationships } from "@/lib/member-relationship-service"
+import { MainMemberForm } from "@/components/contract/MainMemberForm"
+import { DependentData } from "@/types/dependent"
 
 let cateringOptionsAmount = 0;
 type MainMemberData = {
   personalInfo: {
+    title: string
     firstName: string
     lastName: string
     idNumber: string
     gender: string
     dateOfBirth: Date | null
+    initials: string
+    language: string
+    maritalStatus: string
+    nationality: string
+    idType: "South African ID" | "Passport"
+    idDocumentUrl: string | null
   }
   contractNumber?: string
   contractId?: string
+  addressDetails: {
+    streetAddress: string
+    city: string
+    stateProvince: string
+    postalCode: string
+    country: string
+  }
+  contactDetails: Array<{
+    type: "Email" | "Phone Number"
+    value: string
+  }>
 }
 
 type BeneficiaryData = {
   id?: string
   personalInfo: {
+    title?: string
     firstName: string
     lastName: string
+    initials?: string
+    dateOfBirth?: Date | null
+    gender?: string
     relationshipToMainMember: string
+    nationality?: string
+    idType?: "South African ID" | "Passport"
     idNumber: string
     beneficiaryPercentage: number
+    idDocumentUrl?: string | null
   }
   contactDetails?: Array<{
     type: "Email" | "Phone Number"
@@ -49,17 +77,6 @@ type BeneficiaryData = {
     stateProvince: string
     postalCode: string
     country: string
-  }
-}
-
-type DependentData = {
-  id?: string
-  personalInfo: {
-    firstName: string
-    lastName: string
-    relationshipToMainMember: string
-    dependentStatus: string
-    idNumber: string
   }
 }
 
@@ -122,20 +139,30 @@ type ContractSummaryProps = {
   error?: string | null
 }
 
-// Add type for Firestore data
+// Add type for member relationship
+type MemberRelationship = {
+  relationship_id: string
+  member_id: string
+  contract_number: string
+  role: 'Main Member' | 'Dependent' | 'Beneficiary'
+  created_at: Date
+}
+
+// Update FirestoreMemberData type
 type FirestoreMemberData = {
   firstName: string
   lastName: string
   idNumber: string
-  dateOfBirth: string
+  dateOfBirth: Date | null
   gender: string
-  title: string
-  initials: string
-  language: string
-  maritalStatus: string
-  nationality: string
-  idType: "South African ID" | "Passport"
-  idDocumentUrl: string | null
+  title?: string
+  initials?: string
+  language?: string
+  maritalStatus?: string
+  nationality?: string
+  idType?: "South African ID" | "Passport"
+  idDocumentUrl?: string | null
+  totalPercentage?: number
 }
 
 type FirestorepoliciesData = {
@@ -264,6 +291,37 @@ export function ContractSummary({ data, onEdit, isLoading = false, error = null 
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [viewingReceipt, setViewingReceipt] = useState<{ url: string; reference: string } | null>(null)
   const [isImageLoading, setIsImageLoading] = useState(false)
+  const [benefitLoading, setBenefitLoading] = useState(true);
+  const [benefitError, setBenefitError] = useState<string | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [showMainMemberDialog, setShowMainMemberDialog] = useState(false);
+  const [mainMemberFormData, setMainMemberFormData] = useState<MainMemberData>({
+    personalInfo: {
+      title: '',
+      firstName: '',
+      lastName: '',
+      idNumber: '',
+      gender: '',
+      dateOfBirth: null,
+      initials: '',
+      language: '',
+      maritalStatus: '',
+      nationality: '',
+      idType: 'South African ID',
+      idDocumentUrl: null
+    },
+    contractNumber: '',
+    contractId: '',
+    addressDetails: {
+      streetAddress: '',
+      city: '',
+      stateProvince: '',
+      postalCode: '',
+      country: ''
+    },
+    contactDetails: []
+  });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const fetchContractData = async () => {
@@ -300,16 +358,13 @@ export function ContractSummary({ data, onEdit, isLoading = false, error = null 
         }
 
         // Get policies details
-        const policiesRef = query(
-          collection(db, 'Policies'),
-          where('id', '==', contractData.policiesId)
-        )
-        const policiesDoc = await getDocs(policiesRef)
-        cateringOptionsAmount = 0;
-        if (policiesDoc.empty) {
+        const policiesRef = doc(db, 'Policies', contractData.policiesId)
+        const policiesDoc = await getDoc(policiesRef)
+        
+        if (!policiesDoc.exists()) {
           throw new Error('policies not found')
         }
-        const policiesData = policiesDoc.docs[0].data()
+        const policiesData = policiesDoc.data()
         
         // Get catering options
         const cateringOptionsData = await Promise.all(
@@ -331,65 +386,143 @@ export function ContractSummary({ data, onEdit, isLoading = false, error = null 
             }
           })
         )
-      
-        // Get the main member details
-        const membersQuery = query(
-          collection(db, 'Members'),
-          where('idNumber', '==', contractData.memberIdNumber)
+        
+        // Get member_contract_relationships for this contract
+        const relationshipsRef = collection(db, 'member_contract_relationships')
+        const relationshipsQuery = query(
+          relationshipsRef,
+          where('contract_number', '==', contractData.contractNumber)
         )
-        const memberSnapshot = await getDocs(membersQuery)
-        const memberDoc = memberSnapshot.docs[0]
-        if (!memberDoc) {
-          throw new Error('Member not found')
+        
+        
+        const relationshipsSnapshot = await getDocs(relationshipsQuery)
+
+        // Initialize arrays for different member types
+        let mainMemberData: FirestoreMemberData = {
+          firstName: '',
+          lastName: '',
+          idNumber: '',
+          dateOfBirth: null,
+          gender: '',
+          title: '',
+          initials: '',
+          language: '',
+          maritalStatus: '',
+          nationality: ''
+        };
+        const beneficiariesData: BeneficiaryData[] = []
+        const dependentsData: DependentData[] = []
+
+        // Process each relationship
+        await Promise.all(relationshipsSnapshot.docs.map(async (relationshipDoc) => {
+          const relationshipData = relationshipDoc.data()
+          const memberId = relationshipData.member_id
+          const memberRole = relationshipData.role
+          
+          // Get member details
+          const memberDoc = await getDoc(doc(db, 'Members', memberId))
+          if (!memberDoc.exists()) return
+
+          const memberData = memberDoc.data() as FirestoreMemberData
+
+          // Get relationship type if exists
+          const relationshipTypeQuery = query(
+            collection(db, 'Relationship'),
+            where('member_contract_relationship_id', '==', relationshipDoc.id)
+          )
+          const relationshipTypeSnapshot = await getDocs(relationshipTypeQuery)
+          const relationshipType = relationshipTypeSnapshot.empty ? '' : relationshipTypeSnapshot.docs[0].data().relationshipType
+          
+          // Get status if exists
+          const statusQuery = query(
+            collection(db, 'Status'),
+            where('member_contract_relationship_id', '==', relationshipDoc.id)
+          )
+          const statusSnapshot = await getDocs(statusQuery)
+          const status = statusSnapshot.empty ? 'Active' : statusSnapshot.docs[0].data().status
+
+          switch (memberRole) {
+            case 'Main Member':
+              mainMemberData = {
+                ...memberData,
+                dateOfBirth: memberData.dateOfBirth instanceof Timestamp ? 
+                  memberData.dateOfBirth.toDate() : 
+                  null
+              };
+              break;
+            case 'Beneficiary':
+              beneficiariesData.push({
+                id: memberDoc.id,
+                personalInfo: {
+                  firstName: memberData.firstName,
+                  lastName: memberData.lastName,
+                  relationshipToMainMember: relationshipType,
+                  idNumber: memberData.idNumber,
+                  beneficiaryPercentage: (memberData as any).totalPercentage || 0
+                }
+              });
+              break;
+            case 'Dependent':
+              dependentsData.push({
+                id: memberDoc.id,
+                personalInfo: {
+                  title: memberData.title || '',
+                  firstName: memberData.firstName,
+                  lastName: memberData.lastName,
+                  initials: memberData.initials || '',
+                  dateOfBirth: memberData.dateOfBirth ? new Date(memberData.dateOfBirth) : null,
+                  gender: memberData.gender || '',
+                  relationshipToMainMember: relationshipType,
+                  nationality: memberData.nationality || '',
+                  idType: memberData.idType || 'South African ID',
+                  idNumber: memberData.idNumber,
+                  dependentStatus: status,
+                  idDocumentUrl: memberData.idDocumentUrl || null
+                },
+                contactDetails: [],
+                addressDetails: {
+                  streetAddress: '',
+                  city: '',
+                  stateProvince: '',
+                  postalCode: '',
+                  country: ''
+                }
+              });
+              break;
+          }
+        }))
+        
+        if (!mainMemberData.firstName) {
+          console.warn('Main member data is missing or incomplete');
         }
-        const memberData = memberDoc.data() as FirestoreMemberData
 
-        // Get beneficiaries
-        const beneficiariesQuery = query(
-          collection(db, 'Beneficiaries'),
-          where('contractNumber', '==', contractData.contractNumber)
-        )
-        const beneficiariesSnapshot = await getDocs(beneficiariesQuery)
-        const beneficiariesData = beneficiariesSnapshot.docs.map(doc => ({
-          id: doc.id,
-          personalInfo: {
-            firstName: doc.data().firstName,
-            lastName: doc.data().lastName,
-            relationshipToMainMember: doc.data().relationshipToMainMember,
-            idNumber: doc.data().idNumber,
-            beneficiaryPercentage: doc.data().beneficiaryPercentage
-          }
-        }))
-
-        // Get dependents
-        const dependentsQuery = query(
-          collection(db, 'Dependents'),
-          where('contractNumber', '==', contractData.contractNumber)
-        )
-        const dependentsSnapshot = await getDocs(dependentsQuery)
-        const dependentsData = dependentsSnapshot.docs.map(doc => ({
-          id: doc.id,
-          personalInfo: {
-            firstName: doc.data().firstName,
-            lastName: doc.data().lastName,
-            relationshipToMainMember: doc.data().relationshipToMainMember,
-            dependentStatus: doc.data().dependentStatus,
-            idNumber: doc.data().idNumber
-          }
-        }))
-
-        // Construct full contract data with all required fields
+        // Construct full contract data
         const fullContractData: ContractData = {
           mainMember: {
             personalInfo: {
-              firstName: memberData.firstName,
-              lastName: memberData.lastName,
-              idNumber: memberData.idNumber,
-              gender: memberData.gender,
-              dateOfBirth: null
+              title: mainMemberData.title || '',
+              firstName: mainMemberData.firstName || 'N/A',
+              lastName: mainMemberData.lastName || 'N/A',
+              idNumber: mainMemberData.idNumber || 'N/A',
+              gender: mainMemberData.gender || 'N/A',
+              dateOfBirth: mainMemberData.dateOfBirth,
+              initials: mainMemberData.initials || '',
+              language: mainMemberData.language || '',
+              maritalStatus: mainMemberData.maritalStatus || '',
+              nationality: mainMemberData.nationality || '',
+              idType: mainMemberData.idType || 'South African ID',
+              idDocumentUrl: mainMemberData.idDocumentUrl || null
             },
             contractNumber: contractData.contractNumber,
-            contractId: contractDoc.id
+            contractId: contractDoc.id,
+            addressDetails: {
+              streetAddress: '',
+              city: '',
+              stateProvince: '',
+              postalCode: '',
+              country: ''
+            },
+            contactDetails: []
           },
           beneficiaries: beneficiariesData,
           dependents: dependentsData,
@@ -406,7 +539,7 @@ export function ContractSummary({ data, onEdit, isLoading = false, error = null 
         setContractData(fullContractData)
       } catch (error) {
         console.error('Error fetching contract data:', error)
-        setFetchError(error instanceof Error ? error.message : 'Failed to load contract data. Please try again.')
+        setFetchError(error instanceof Error ? error.message : 'Failed to load contract data')
       } finally {
         setLoading(false)
       }
@@ -521,6 +654,140 @@ export function ContractSummary({ data, onEdit, isLoading = false, error = null 
     fetchClaimHistory()
   }, [data.mainMember.contractNumber])
 
+  useEffect(() => {
+    if (!contractData?.mainMember.contractNumber) return;
+
+    // Query for member-contract relationships
+    const relationshipsRef = collection(db, 'member_contract_relationships');
+    const relationshipsQuery = query(
+      relationshipsRef,
+      where('contract_number', '==', contractData.mainMember.contractNumber),
+      where('role', '==', 'Beneficiary')
+    );
+
+    // Set up the real-time listener
+    const unsubscribe = onSnapshot(relationshipsQuery, async (relationshipSnapshot) => {
+      try {
+        setBenefitLoading(true);
+        setBenefitError(null);
+        
+        const beneficiaryPromises = relationshipSnapshot.docs.map(async (relationshipDoc) => {
+          const memberId = relationshipDoc.data().member_id;
+          const relationshipId = relationshipDoc.id;
+
+          try {
+            // Get member details
+            const memberDoc = await getDoc(doc(db, 'Members', memberId));
+            if (!memberDoc.exists()) return null;
+            const memberData = memberDoc.data();
+
+            // Get contact details
+            const contactsQuery = query(
+              collection(db, 'Contacts'),
+              where('memberId', '==', memberId)
+            );
+            const contactsSnapshot = await getDocs(contactsQuery);
+            const contactDetails = contactsSnapshot.docs.map(doc => ({
+              type: doc.data().type as "Email" | "Phone Number",
+              value: doc.data().value
+            }));
+
+            // Get address details
+            const addressQuery = query(
+              collection(db, 'Address'),
+              where('memberId', '==', memberId)
+            );
+            const addressSnapshot = await getDocs(addressQuery);
+            const addressData = addressSnapshot.docs[0]?.data() || {
+              streetAddress: '',
+              city: '',
+              stateProvince: '',
+              postalCode: '',
+              country: ''
+            };
+
+            // Get benefit percentage from Benefit collection with error handling
+            const benefitQuery = query(
+              collection(db, 'Benefit'),
+              where('member_contract_relationship_id', '==', relationshipId)
+            );
+            const benefitSnapshot = await getDocs(benefitQuery);
+            const benefitPercentage = benefitSnapshot.docs[0]?.data()?.percentage || 0;
+
+            if (benefitSnapshot.empty) {
+              console.warn(`No benefit percentage found for relationship ID: ${relationshipId}`);
+            }
+
+            // Get relationship type from Relationship collection
+            const relationshipTypeQuery = query(
+              collection(db, 'Relationship'),
+              where('member_contract_relationship_id', '==', relationshipId)
+            );
+            const relationshipTypeSnapshot = await getDocs(relationshipTypeQuery);
+            const relationshipType = relationshipTypeSnapshot.docs[0]?.data()?.relationshipType || '';
+
+            // Construct beneficiary object
+            const beneficiary: BeneficiaryData = {
+              id: memberId,
+              personalInfo: {
+                title: memberData.title || '',
+                firstName: memberData.firstName || '',
+                lastName: memberData.lastName || '',
+                initials: memberData.initials || '',
+                dateOfBirth: memberData.dateOfBirth ? new Date(memberData.dateOfBirth) : null,
+                gender: memberData.gender || '',
+                relationshipToMainMember: relationshipType,
+                nationality: memberData.nationality || '',
+                idType: memberData.idType || 'South African ID',
+                idNumber: memberData.idNumber || '',
+                beneficiaryPercentage: benefitPercentage,
+                idDocumentUrl: memberData.idDocumentUrl || null,
+              },
+              contactDetails,
+              addressDetails: {
+                streetAddress: addressData.streetAddress || '',
+                city: addressData.city || '',
+                stateProvince: addressData.stateProvince || '',
+                postalCode: addressData.postalCode || '',
+                country: addressData.country || ''
+              }
+            };
+
+            return beneficiary;
+          } catch (error) {
+            console.error('Error processing beneficiary:', error);
+            return null;
+          }
+        });
+
+        const beneficiariesData = (await Promise.all(beneficiaryPromises)).filter((b): b is BeneficiaryData => b !== null);
+        
+        // Validate total percentage
+        const totalPercentage = beneficiariesData.reduce((sum, ben) => sum + (ben.personalInfo.beneficiaryPercentage || 0), 0);
+        if (totalPercentage > 100) {
+          console.warn(`Total beneficiary percentage exceeds 100%: ${totalPercentage}%`);
+        }
+        
+        setContractData(prevData => ({
+          ...prevData!,
+          beneficiaries: beneficiariesData
+        }));
+        setBenefitLoading(false);
+      } catch (error) {
+        console.error('Error fetching beneficiaries:', error);
+        setBenefitError('Failed to fetch beneficiaries. Please refresh the page.');
+        setBenefitLoading(false);
+      }
+    }, (error) => {
+      console.error('Error in beneficiaries listener:', error);
+      setBenefitError('Error listening to beneficiary changes. Please refresh the page.');
+      setBenefitLoading(false);
+    });
+
+    // Cleanup listener on unmount
+    return () => unsubscribe();
+  }, [contractData?.mainMember.contractNumber, setContractData]);
+
   const totalCateringCost = (contractData?.cateringOptions || []).reduce(
     (total: number, option) => total + option.price,
     0
@@ -529,11 +796,11 @@ export function ContractSummary({ data, onEdit, isLoading = false, error = null 
 
   const totalBeneficiaryPercentage = (contractData?.beneficiaries || []).reduce(
     (sum, beneficiary) => {
-      const percentage = beneficiary?.personalInfo?.beneficiaryPercentage || 0
-      return sum + percentage
+      const percentage = Number(beneficiary?.personalInfo?.beneficiaryPercentage) || 0;
+      return sum + percentage;
     },
     0
-  )
+  );
 
   const getStatusColor = (status?: string) => {
     switch (status?.toLowerCase()) {
@@ -548,6 +815,113 @@ export function ContractSummary({ data, onEdit, isLoading = false, error = null 
         return 'bg-gray-100 text-gray-800'
     }
   }
+
+  const handleMainMemberUpdate = async (updatedData: MainMemberData) => {
+    try {
+      setIsUpdating(true);
+      
+      // Get the member relationship
+      const relationshipsRef = collection(db, 'member_contract_relationships');
+      const q = query(
+        relationshipsRef,
+        where('contract_number', '==', contractData?.mainMember.contractNumber),
+        where('role', '==', 'Main Member')
+      );
+      
+      const relationshipSnapshot = await getDocs(q);
+      if (relationshipSnapshot.empty) {
+        throw new Error('Main member relationship not found');
+      }
+      
+      const memberId = relationshipSnapshot.docs[0].data().member_id;
+      
+      // Update member details
+      const memberRef = doc(db, 'Members', memberId);
+      await updateDoc(memberRef, {
+        title: updatedData.personalInfo.title,
+        firstName: updatedData.personalInfo.firstName,
+        lastName: updatedData.personalInfo.lastName,
+        initials: updatedData.personalInfo.initials,
+        dateOfBirth: updatedData.personalInfo.dateOfBirth,
+        gender: updatedData.personalInfo.gender,
+        language: updatedData.personalInfo.language,
+        maritalStatus: updatedData.personalInfo.maritalStatus,
+        nationality: updatedData.personalInfo.nationality,
+        idType: updatedData.personalInfo.idType,
+        idNumber: updatedData.personalInfo.idNumber,
+        idDocumentUrl: updatedData.personalInfo.idDocumentUrl
+      });
+
+      // Update contacts
+      const contactsRef = collection(db, 'Contacts');
+      const contactsQuery = query(contactsRef, where('memberId', '==', memberId));
+      const contactsSnapshot = await getDocs(contactsQuery);
+      
+      // Delete existing contacts
+      for (const doc of contactsSnapshot.docs) {
+        await deleteDoc(doc.ref);
+      }
+      
+      // Add new contacts
+      for (const contact of updatedData.contactDetails || []) {
+        await addDoc(contactsRef, {
+          memberId,
+          type: contact.type,
+          value: contact.value
+        });
+      }
+
+      // Update address
+      const addressRef = collection(db, 'Address');
+      const addressQuery = query(addressRef, where('memberId', '==', memberId));
+      const addressSnapshot = await getDocs(addressQuery);
+      
+      if (addressSnapshot.empty) {
+        // Create new address
+        await addDoc(addressRef, {
+          memberId,
+          ...updatedData.addressDetails
+        });
+      } else {
+        // Update existing address
+        if (updatedData.addressDetails) {
+          await updateDoc(addressSnapshot.docs[0].ref, updatedData.addressDetails);
+        }
+      }
+
+      toast({
+        title: "Success",
+        description: "Main member details updated successfully",
+      });
+
+      // Close dialog and refresh data
+      setShowMainMemberDialog(false);
+      
+      // Update the local state to reflect changes
+      if (contractData) {
+        setContractData({
+          ...contractData,
+          mainMember: {
+            personalInfo: updatedData.personalInfo,
+            contractNumber: contractData.mainMember.contractNumber,
+            contractId: contractData.mainMember.contractId,
+            addressDetails: updatedData.addressDetails,
+            contactDetails: updatedData.contactDetails
+          }
+        });
+      }
+
+    } catch (error) {
+      console.error('Error updating main member:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update main member details",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   if (loading || isLoading) {
     return (
@@ -678,18 +1052,8 @@ export function ContractSummary({ data, onEdit, isLoading = false, error = null 
         <TabsContent value="policies">
       <Card>
         <CardHeader>
-              <CardTitle className="flex justify-between items-center">
+              <CardTitle>
                 policies Details
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="outline" size="sm" onClick={() => onEdit("policies")}>
-                        Edit
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Edit policies details</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
               </CardTitle>
         </CardHeader>
         <CardContent>
@@ -742,45 +1106,47 @@ export function ContractSummary({ data, onEdit, isLoading = false, error = null 
         <TabsContent value="main-member">
       <Card>
         <CardHeader>
-              <CardTitle className="flex justify-between items-center">
+              <CardTitle>
                 Main Member Details
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="outline" size="sm" onClick={() => onEdit("main-member")}>
-                        Edit
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Edit main member details</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
               </CardTitle>
         </CardHeader>
         <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Full Name</TableHead>
-                    <TableHead>ID Number</TableHead>
-                    <TableHead>Gender</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  <TableRow>
-                    <TableCell>
-                      {contractData.mainMember.personalInfo.firstName} {contractData.mainMember.personalInfo.lastName}
-                    </TableCell>
-                    <TableCell>{contractData.mainMember.personalInfo.idNumber}</TableCell>
-                    <TableCell>{contractData.mainMember.personalInfo.gender}</TableCell>
-                    <TableCell>
-                      <Button variant="outline" size="sm" onClick={() => onEdit("main-member")}>
-                        Edit
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
+              {loading ? (
+                <div className="space-y-4">
+                  <Skeleton className="h-16 w-full" />
+                </div>
+              ) : !contractData?.mainMember?.personalInfo ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <AlertCircle className="mx-auto h-8 w-8 mb-2" />
+                  <p>No main member details available</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Full Name</TableHead>
+                      <TableHead>ID Number</TableHead>
+                      <TableHead>Gender</TableHead>
+                      <TableHead>Date of Birth</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    <TableRow>
+                      <TableCell>
+                        {contractData.mainMember.personalInfo.firstName} {contractData.mainMember.personalInfo.lastName}
+                      </TableCell>
+                      <TableCell>{contractData.mainMember.personalInfo.idNumber}</TableCell>
+                      <TableCell>{contractData.mainMember.personalInfo.gender}</TableCell>
+                      <TableCell>
+                        {contractData.mainMember.personalInfo.dateOfBirth 
+                          ? format(contractData.mainMember.personalInfo.dateOfBirth, 'dd/MM/yyyy')
+                          : 'N/A'
+                        }
+                      </TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              )}
         </CardContent>
       </Card>
         </TabsContent>
@@ -794,48 +1160,51 @@ export function ContractSummary({ data, onEdit, isLoading = false, error = null 
                   <Badge variant={totalBeneficiaryPercentage === 100 ? "default" : "destructive"}>
                     Total: {totalBeneficiaryPercentage}%
                   </Badge>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button variant="outline" size="sm" onClick={() => onEdit("beneficiaries")}>
-                          Add
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Add beneficiary</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
                 </div>
               </CardTitle>
         </CardHeader>
         <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Full Name</TableHead>
-                    <TableHead>Relationship</TableHead>
-                    <TableHead>ID Number</TableHead>
-                    <TableHead>Percentage</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {contractData.beneficiaries.map((beneficiary, index) => (
-                    <TableRow key={index}>
-                      <TableCell>
-                        {beneficiary.personalInfo.firstName} {beneficiary.personalInfo.lastName}
-                      </TableCell>
-                      <TableCell>{beneficiary.personalInfo.relationshipToMainMember}</TableCell>
-                      <TableCell>{beneficiary.personalInfo.idNumber}</TableCell>
-                      <TableCell>{beneficiary.personalInfo.beneficiaryPercentage}%</TableCell>
-                      <TableCell>
-                        <Button variant="outline" size="sm" onClick={() => onEdit(`beneficiary-${index}`)}>
-                          Edit
-                        </Button>
-                      </TableCell>
-                    </TableRow>
+              {benefitError ? (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Error</AlertTitle>
+                  <AlertDescription>{benefitError}</AlertDescription>
+                </Alert>
+              ) : benefitLoading ? (
+                <div className="space-y-4">
+                  {[1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-16 w-full" />
                   ))}
-                </TableBody>
-              </Table>
+                </div>
+              ) : contractData.beneficiaries.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <AlertCircle className="mx-auto h-8 w-8 mb-2" />
+                  <p>No beneficiaries added yet</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Full Name</TableHead>
+                      <TableHead>Relationship</TableHead>
+                      <TableHead>ID Number</TableHead>
+                      <TableHead>Percentage</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {contractData.beneficiaries.map((beneficiary, index) => (
+                      <TableRow key={index}>
+                        <TableCell>
+                          {beneficiary.personalInfo.firstName} {beneficiary.personalInfo.lastName}
+                        </TableCell>
+                        <TableCell>{beneficiary.personalInfo.relationshipToMainMember}</TableCell>
+                        <TableCell>{beneficiary.personalInfo.idNumber}</TableCell>
+                        <TableCell>{beneficiary.personalInfo.beneficiaryPercentage}%</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
         </CardContent>
       </Card>
         </TabsContent>
@@ -843,18 +1212,8 @@ export function ContractSummary({ data, onEdit, isLoading = false, error = null 
         <TabsContent value="dependents">
       <Card>
         <CardHeader>
-              <CardTitle className="flex justify-between items-center">
+              <CardTitle>
                 Dependent Details
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="outline" size="sm" onClick={() => onEdit("dependents")}>
-                        Add
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Add dependent</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
               </CardTitle>
         </CardHeader>
         <CardContent>
@@ -865,7 +1224,6 @@ export function ContractSummary({ data, onEdit, isLoading = false, error = null 
                     <TableHead>Relationship</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>ID Number</TableHead>
-                    <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -881,11 +1239,6 @@ export function ContractSummary({ data, onEdit, isLoading = false, error = null 
                         </Badge>
                       </TableCell>
                       <TableCell>{dependent.personalInfo.idNumber}</TableCell>
-                      <TableCell>
-                        <Button variant="outline" size="sm" onClick={() => onEdit(`dependent-${index}`)}>
-                          Edit
-                        </Button>
-                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1142,6 +1495,41 @@ export function ContractSummary({ data, onEdit, isLoading = false, error = null 
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showMainMemberDialog} onOpenChange={setShowMainMemberDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Main Member Details</DialogTitle>
+          </DialogHeader>
+          <MainMemberForm
+            data={mainMemberFormData}
+            updateData={setMainMemberFormData}
+            errors={formErrors}
+          />
+          <DialogFooter>
+            <Button
+              onClick={() => setShowMainMemberDialog(false)}
+              variant="outline"
+              disabled={isUpdating}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => handleMainMemberUpdate(mainMemberFormData)}
+              disabled={isUpdating}
+            >
+              {isUpdating ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                'Update'
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

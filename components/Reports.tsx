@@ -238,8 +238,22 @@ export function Reports() {
     
     switch(reportType) {
       case "Claims":
-        data = filterClaims()
-        break
+        // Use the new fetchClaimData function for Claims report
+        fetchClaimData().then(result => {
+          if (result.success) {
+            setFilteredData(result.data || [])
+          } else {
+            setFilteredData([])
+            alert(result.message)
+          }
+          setSearchLoading(false)
+        }).catch(error => {
+          console.error("Error in handleSearch:", error)
+          setFilteredData([])
+          alert("An error occurred while retrieving data. Please try again.")
+          setSearchLoading(false)
+        })
+        return // Return early as we're handling loading state in the promise
       case "contracts":
         data = filterContracts()
         break
@@ -267,88 +281,115 @@ export function Reports() {
     )
   }
 
+  // Add new function to fetch claim data
+  const fetchClaimData = async () => {
+    try {
+      setSearchLoading(true)
+      setLoadingProgress(10)
+      
+      // Create base query
+      let claimsQuery = query(collection(db, "Claims"))
+      
+      // Create an array to store all the query constraints
+      const queryConstraints = []
+      
+      // Only add filters if they have values
+      if (claimFilters.claimNumber.trim()) {
+        const searchTerm = claimFilters.claimNumber.trim()
+        queryConstraints.push(
+          where("claimNumber", ">=", searchTerm),
+          where("claimNumber", "<=", searchTerm + '\uf8ff')
+        )
+      }
+      
+      if (claimFilters.contractNumber.trim()) {
+        queryConstraints.push(
+          where("contractNumber", "==", claimFilters.contractNumber.trim())
+        )
+      }
+      
+      if (claimFilters.status && claimFilters.status !== "all") {
+        queryConstraints.push(
+          where("status", "==", claimFilters.status)
+        )
+      }
+      
+      if (claimFilters.type && claimFilters.type !== "all") {
+        queryConstraints.push(
+          where("type", "==", claimFilters.type)
+        )
+      }
+      
+      // Apply all query constraints if any exist
+      if (queryConstraints.length > 0) {
+        claimsQuery = query(collection(db, "Claims"), ...queryConstraints)
+      }
+      
+      setLoadingProgress(30)
+      
+      const querySnapshot = await getDocs(claimsQuery)
+       
+      if (querySnapshot.empty) {
+        return { success: false, message: "No data found matching your criteria" }
+      }
+      
+      setLoadingProgress(60)
+      
+      // Convert to array and filter by date if needed
+      let claims = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        claimNumber: doc.data().claimNumber,
+        contractNumber: doc.data().contractNumber,
+        status: doc.data().status,
+        type: doc.data().type,
+        date: doc.data().createdAt,
+        lastUpdated: doc.data().lastUpdated,
+        amount: doc.data().amount
+      } as FirestoreClaim))
+
+      // Filter by date range if selected
+      if (dateRange?.from && dateRange?.to) {
+        claims = claims.filter(claim => {
+          try {
+            const claimDate = claim.date.toDate()
+            return claimDate >= dateRange.from! && claimDate <= dateRange.to!
+          } catch (error) {
+            console.error("Error processing date for claim:", claim.claimNumber, error)
+            return false
+          }
+        })
+      }
+      
+      setLoadingProgress(90)
+      
+      if (claims.length === 0) {
+        return { success: false, message: "No claims found for the selected criteria" }
+      }
+      
+      setLoadingProgress(100)
+      return { success: true, data: claims }
+    } catch (error) {
+      console.error("Error fetching claims:", error)
+      return { success: false, message: "An error occurred while retrieving claim data. Please try again." }
+    } finally {
+      setSearchLoading(false)
+    }
+  }
+
   const exportToExcel = async () => {
     if (reportType === "Claims") {
-      setSearchLoading(true)
       try {
-        // Create base query
-        let claimsQuery = query(collection(db, "Claims"))
+        const result = await fetchClaimData()
         
-        // Create an array to store all the query constraints
-        const queryConstraints = []
-        
-        // Only add filters if they have values
-        if (claimFilters.claimNumber.trim()) {
-          const searchTerm = claimFilters.claimNumber.trim()
-          queryConstraints.push(
-            where("claimNumber", ">=", searchTerm),
-            where("claimNumber", "<=", searchTerm + '\uf8ff')
-          )
-        }
-        
-        if (claimFilters.contractNumber.trim()) {
-          queryConstraints.push(
-            where("contractNumber", "==", claimFilters.contractNumber.trim())
-          )
-        }
-        
-        if (claimFilters.status && claimFilters.status !== "all") {
-          queryConstraints.push(
-            where("status", "==", claimFilters.status)
-          )
-        }
-        
-        if (claimFilters.type && claimFilters.type !== "all") {
-          queryConstraints.push(
-            where("type", "==", claimFilters.type)
-          )
-        }
-        
-        // Apply all query constraints if any exist
-        if (queryConstraints.length > 0) {
-          claimsQuery = query(collection(db, "Claims"), ...queryConstraints)
-        }
-        
-        const querySnapshot = await getDocs(claimsQuery)
-         
-        if (querySnapshot.empty) {
-          alert("No data found matching your criteria")
+        if (!result.success) {
+          alert(result.message)
           return
         }
         
-        // Convert to array and filter by date if needed
-        let claims = querySnapshot.docs.map(doc => ({
-          id: doc.id,
-          claimNumber: doc.data().claimNumber,
-          contractNumber: doc.data().contractNumber,
-          status: doc.data().status,
-          type: doc.data().type,
-          date: doc.data().createdAt,
-          lastUpdated: doc.data().lastUpdated,
-          amount: doc.data().amount
-        } as FirestoreClaim))
-
-        try {
-        // Filter by date range if selected
-        if (dateRange?.from && dateRange?.to) {
-          claims = claims.filter(claim => {
-            const claimDate = claim.date.toDate()
-              return claimDate >= dateRange!.from! && claimDate <= dateRange!.to!
-            })
-          }   
-          
-        } catch (dateError) {
-          alert("Error processing dates. Please check your date range selection.")
-          return
-        }
+        const claims = result.data
         
-        if (claims.length === 0) {
-          alert("No claims found for the selected criteria")
-          return
-        }
-
         // Prepare data for Excel
-        const excelData = claims.map(claim => ({
+        const excelData = claims?.map(claim => ({
           'Claim Number': claim.claimNumber || 'N/A',
           'Contract Number': claim.contractNumber || 'N/A',
           'Status': claim.status || 'N/A',
@@ -359,16 +400,14 @@ export function Reports() {
         }))
         
         // Create and save Excel file
-        const ws = XLSX.utils.json_to_sheet(excelData)
+        const ws = XLSX.utils.json_to_sheet(excelData || [])
         const wb = XLSX.utils.book_new()
         XLSX.utils.book_append_sheet(wb, ws, 'Claims Report')
         XLSX.writeFile(wb, `Claims_Report_${format(new Date(), 'dd-MM-yyyy')}.xlsx`)
         
       } catch (error) {
-        console.error("Error fetching claims:", error)
+        console.error("Error generating Excel report:", error)
         alert("An error occurred while generating the report. Please try again.")
-      } finally {
-        setSearchLoading(false)
       }
     }
    
@@ -526,95 +565,40 @@ export function Reports() {
 
   const exportToCSV = () => {
     if (reportType === "Claims") {
-      setSearchLoading(true)
       try {
-        // Create base query
-        let claimsQuery = query(collection(db, "Claims"))
-        const queryConstraints = []
-        
-        if (claimFilters.claimNumber.trim()) {
-          const searchTerm = claimFilters.claimNumber.trim()
-          queryConstraints.push(
-            where("claimNumber", ">=", searchTerm),
-            where("claimNumber", "<=", searchTerm + '\uf8ff')
-          )
-        }
-        
-        if (claimFilters.contractNumber.trim()) {
-          queryConstraints.push(
-            where("contractNumber", "==", claimFilters.contractNumber.trim())
-          )
-        }
-        
-        if (claimFilters.status && claimFilters.status !== "all") {
-          queryConstraints.push(where("status", "==", claimFilters.status))
-        }
-        
-        if (claimFilters.type && claimFilters.type !== "all") {
-          queryConstraints.push(where("type", "==", claimFilters.type))
-        }
-        
-        if (queryConstraints.length > 0) {
-          claimsQuery = query(collection(db, "Claims"), ...queryConstraints)
-        }
-
-        getDocs(claimsQuery).then(querySnapshot => {
-          if (querySnapshot.empty) {
-            alert("No data found matching your criteria")
+        fetchClaimData().then(result => {
+          if (!result.success) {
+            alert(result.message)
             return
           }
-
-          let claims = querySnapshot.docs.map(doc => ({
-            id: doc.id,
-            claimNumber: doc.data().claimNumber,
-            contractNumber: doc.data().contractNumber,
-            status: doc.data().status,
-            type: doc.data().type,
-            date: doc.data().createdAt,
-            lastUpdated: doc.data().lastUpdated,
-            amount: doc.data().amount
-          } as FirestoreClaim))
-
-          if (dateRange?.from && dateRange?.to) {
-            claims = claims.filter(claim => {
-              const claimDate = claim.date.toDate()
-              return claimDate >= dateRange!.from! && claimDate <= dateRange!.to!
-            })
-          }
-
-          if (claims.length === 0) {
-            alert("No claims found for the selected criteria")
-            return
-          }
-
+          
+          const claims = result.data
+          
           const fields = ['Claim Number', 'Contract Number', 'Status', 'Type', 'Created Date', 'Last Updated']
-          const data = claims.map(claim => ({
+          const data = claims?.map(claim => ({
             'Claim Number': claim.claimNumber || 'N/A',
             'Contract Number': claim.contractNumber || 'N/A',
             'Status': claim.status || 'N/A',
             'Type': claim.type || 'N/A',
             'Created Date': format(claim.date.toDate(), 'dd/MM/yyyy') || 'N/A',
             'Last Updated': format(claim.lastUpdated.toDate(), 'dd/MM/yyyy') || 'N/A'
-      }))
+          }))
 
-      const json2csvParser = new Parser({ fields })
-      const csv = json2csvParser.parse(data)
-      
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-      const link = document.createElement('a')
-      link.href = URL.createObjectURL(blob)
-      link.download = `Claims_Report_${format(new Date(), 'dd-MM-yyyy')}.csv`
-      link.click()
+          const json2csvParser = new Parser({ fields })
+          const csv = json2csvParser.parse(data || [])
+          
+          const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+          const link = document.createElement('a')
+          link.href = URL.createObjectURL(blob)
+          link.download = `Claims_Report_${format(new Date(), 'dd-MM-yyyy')}.csv`
+          link.click()
         }).catch(error => {
-          console.error("Error fetching claims:", error)
+          console.error("Error generating CSV report:", error)
           alert("An error occurred while generating the CSV. Please try again.")
-        }).finally(() => {
-          setSearchLoading(false)
         })
       } catch (error) {
         console.error("Error:", error)
         alert("An error occurred. Please try again.")
-        setSearchLoading(false)
       }
     }
     if (reportType === "contracts") {
@@ -783,96 +767,42 @@ export function Reports() {
 
   const exportToPDF = () => {
     if (reportType === "Claims") {
-      setSearchLoading(true)
       try {
-        let claimsQuery = query(collection(db, "Claims"))
-        const queryConstraints = []
-        
-        if (claimFilters.claimNumber.trim()) {
-          const searchTerm = claimFilters.claimNumber.trim()
-          queryConstraints.push(
-            where("claimNumber", ">=", searchTerm),
-            where("claimNumber", "<=", searchTerm + '\uf8ff')
-          )
-        }
-        
-        if (claimFilters.contractNumber.trim()) {
-          queryConstraints.push(
-            where("contractNumber", "==", claimFilters.contractNumber.trim())
-          )
-        }
-        
-        if (claimFilters.status && claimFilters.status !== "all") {
-          queryConstraints.push(where("status", "==", claimFilters.status))
-        }
-        
-        if (claimFilters.type && claimFilters.type !== "all") {
-          queryConstraints.push(where("type", "==", claimFilters.type))
-        }
-        
-        if (queryConstraints.length > 0) {
-          claimsQuery = query(collection(db, "Claims"), ...queryConstraints)
-        }
-
-        getDocs(claimsQuery).then(querySnapshot => {
-          if (querySnapshot.empty) {
-            alert("No data found matching your criteria")
+        fetchClaimData().then(result => {
+          if (!result.success) {
+            alert(result.message)
             return
           }
-
-          let claims = querySnapshot.docs.map(doc => ({
-            id: doc.id,
-            claimNumber: doc.data().claimNumber,
-            contractNumber: doc.data().contractNumber,
-            status: doc.data().status,
-            type: doc.data().type,
-            date: doc.data().createdAt,
-            lastUpdated: doc.data().lastUpdated,
-            amount: doc.data().amount
-          } as FirestoreClaim))
-
-          if (dateRange?.from && dateRange?.to) {
-            claims = claims.filter(claim => {
-              const claimDate = claim.date.toDate()
-              return claimDate >= dateRange!.from! && claimDate <= dateRange!.to!
-            })
-          }
-
-          if (claims.length === 0) {
-            alert("No claims found for the selected criteria")
-            return
-          }
-
-      const doc = new jsPDF()
-      
+          
+          const claims = result.data
+          
+          const doc = new jsPDF()
+          
           const tableColumn = ["Claim Number", "Contract Number", "Status", "Type", "Created Date", "Last Updated"]
-          const tableRows = claims.map(claim => [
+          const tableRows = claims?.map(claim => [
             claim.claimNumber || 'N/A',
             claim.contractNumber || 'N/A',
             claim.status || 'N/A',
             claim.type || 'N/A',
             format(claim.date.toDate(), 'dd/MM/yyyy') || 'N/A',
             format(claim.lastUpdated.toDate(), 'dd/MM/yyyy') || 'N/A'
-      ])
+          ])
 
-      doc.autoTable({
-        head: [tableColumn],
-        body: tableRows,
-        startY: 20,
-        headStyles: { fillColor: [41, 128, 185] },
-      })
+          doc.autoTable({
+            head: [tableColumn],
+            body: tableRows,
+            startY: 20,
+            headStyles: { fillColor: [41, 128, 185] },
+          })
 
-      doc.save(`Claims_Report_${format(new Date(), 'dd-MM-yyyy')}.pdf`)
+          doc.save(`Claims_Report_${format(new Date(), 'dd-MM-yyyy')}.pdf`)
         }).catch(error => {
-          console.error("Error fetching claims:", error)
+          console.error("Error generating PDF report:", error)
           alert("An error occurred while generating the PDF. Please try again.")
-        }).finally(() => {
-          setSearchLoading(false)
         })
       } catch (error) {
         console.error("Error:", error)
         alert("An error occurred. Please try again.")
-        setSearchLoading(false)
       }
     }
     if (reportType === "contracts") {

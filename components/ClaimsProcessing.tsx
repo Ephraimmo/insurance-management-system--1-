@@ -101,17 +101,31 @@ export function ClaimsProcessing({ userRole }: ClaimsProcessingProps) {
     
     try {
       setUpdating(true)
+      console.log(`Updating claim ${claimId} status to ${newStatus}`);
+      
+      // Update Firestore
       const claimRef = doc(db, 'Claims', claimId)
       await updateDoc(claimRef, {
         status: newStatus,
         lastUpdated: new Date()
       })
 
+      // Update claims list
       setClaims(prev => prev.map(claim => 
         claim.id === claimId 
           ? transformClaimData({ ...claim, status: newStatus, lastUpdated: new Date() })
           : claim
       ))
+
+      // Update selectedClaim if it matches
+      if (selectedClaim && selectedClaim.id === claimId) {
+        console.log("Updating selected claim status", newStatus);
+        setSelectedClaim(transformClaimData({
+          ...selectedClaim,
+          status: newStatus,
+          lastUpdated: new Date()
+        }));
+      }
 
       toast({
         title: "Success",
@@ -157,9 +171,24 @@ export function ClaimsProcessing({ userRole }: ClaimsProcessingProps) {
   const handleViewClaim = async (claimId: string) => {
     try {
       setLoading(true)
+      console.log("Fetching claim details for ID:", claimId);
+      
+      // Make sure we have a valid claim ID
+      if (!claimId) {
+        throw new Error("Invalid claim ID");
+      }
+      
       const claimData = await getClaimDetails(claimId)
+      
       if (claimData) {
-        setSelectedClaim(transformClaimData(claimData))
+        const transformedClaim = transformClaimData({
+          ...claimData,
+          id: claimId // Ensure ID is explicitly set
+        });
+        console.log("Setting selected claim:", transformedClaim);
+        setSelectedClaim(transformedClaim);
+      } else {
+        throw new Error(`No claim data found for ID: ${claimId}`);
       }
     } catch (error) {
       console.error('Error fetching claim details:', error)
@@ -168,6 +197,7 @@ export function ClaimsProcessing({ userRole }: ClaimsProcessingProps) {
         title: "Error",
         description: "Failed to load claim details"
       })
+      setSelectedClaim(null) // Reset selected claim on error
     } finally {
       setLoading(false)
     }
@@ -326,10 +356,20 @@ export function ClaimsProcessing({ userRole }: ClaimsProcessingProps) {
                         <Button
                           id="View Claim"
                           variant="link"
-                          onClick={() => handleViewClaim(claim.id)}
+                          onClick={() => {
+                            if (claim.id) {
+                              handleViewClaim(claim.id);
+                            } else {
+                              toast({
+                                variant: "destructive",
+                                title: "Error",
+                                description: "Invalid claim ID. Cannot view details."
+                              });
+                            }
+                          }}
                           className="p-0 h-auto font-medium"
                         >
-                          {claim.id}
+                          {claim.id || claim.claimNumber || "Unknown ID"}
                         </Button>
                       </TableCell>
                     <TableCell>{claim.contractNumber}</TableCell>

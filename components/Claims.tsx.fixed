@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { AlertCircle, Check, CheckCircle2, CircleX, Download, Eye, FileText, FileUp, Loader2, Pencil, Plus, Search, Upload, X } from "lucide-react"
+import { Loader2, AlertCircle, Upload, FileText, CheckCircle2, Search, Download, Eye, Pencil, Plus } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -20,7 +20,6 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { saveClaimData, generateClaimNumber } from "@/src/claimFunctions"
-import { Calendar as CalendarIcon } from "lucide-react"
 
 type PolicyDetails = {
   policyNumber: string
@@ -240,7 +239,7 @@ export function Claims({ userRole }: ClaimsProps) {
     relationship: ""
   })
   const [claimNumber, setClaimNumber] = useState<string>("")
-  const [viewingDocument, setViewingDocument] = useState<{ url: string, type: string } | null>(null)
+  const [viewingDocument, setViewingDocument] = useState<{ url: string; type: string } | null>(null)
   const [isImageLoading, setIsImageLoading] = useState(false)
   const [claimStatus, setClaimStatus] = useState<string>("FNOL")
   const [claimDetails, setClaimDetails] = useState<{
@@ -273,7 +272,6 @@ export function Claims({ userRole }: ClaimsProps) {
   
   // Add state for currently editing bank detail
   const [currentBankDetail, setCurrentBankDetail] = useState<BankDetail | null>(null)
-  const [originalBankDetail, setOriginalBankDetail] = useState<BankDetail | null>(null) // Add this line to store the original detail
   
   // Add state for beneficiaries
   const [beneficiaries, setBeneficiaries] = useState<Array<{
@@ -315,11 +313,7 @@ export function Claims({ userRole }: ClaimsProps) {
   }, [bankDetails, policyNumber])
 
   const handlePolicyLookup = async () => {
-    // Clear any previous errors
-    setError(null);
-    
     if (!policyNumber.trim()) {
-      setError("Please enter a policy number");
       toast({
         variant: "destructive",
         title: "Error",
@@ -337,7 +331,6 @@ export function Claims({ userRole }: ClaimsProps) {
       const contractSnapshot = await getDocs(contractQuery)
 
       if (contractSnapshot.empty) {
-        setError("No contract found with the provided number");
         toast({
           variant: "destructive",
           title: "Not Found",
@@ -348,29 +341,11 @@ export function Claims({ userRole }: ClaimsProps) {
         setMemberOptions([]) // Clear member options
         setSelectedDeceasedPerson("") // Reset selected deceased person
         setBankDetails([]) // Clear bank details
-        setLoading(false)
         return
       }
 
       const contractDoc = contractSnapshot.docs[0]
       const contractData = contractDoc.data()
-
-      // Check if contract status is "In-Force"
-      if (contractData.status.toUpperCase() !== "IN-FORCE") {
-        setError("This contract's status is not in-force. Only in-force contracts can be used for claims.");
-        toast({
-          variant: "destructive",
-          title: "Invalid Contract Status",
-          description: "This contract's status is not in-force. Only in-force contracts can be used for claims."
-        })
-        setPolicyDetails(null)
-        setContractData(null)
-        setMemberOptions([]) // Clear member options
-        setSelectedDeceasedPerson("") // Reset selected deceased person
-        setBankDetails([]) // Clear bank details
-        setLoading(false)
-        return
-      }
 
       // Get main member details
       const membersQuery = query(
@@ -546,7 +521,7 @@ export function Claims({ userRole }: ClaimsProps) {
       )
       
       // Filter out null values and set member options
-      setMemberOptions(memberOptionsData.filter(Boolean) as { id: string; firstName: string; lastName: string; idNumber: string; role: string; }[])
+      setMemberOptions(memberOptionsData.filter(Boolean))
       
       // Reset deceased info for the new contract
       setDeceasedInfo({
@@ -590,7 +565,7 @@ export function Claims({ userRole }: ClaimsProps) {
       )
       
       // Filter out null values and set beneficiaries
-      const validBeneficiaries = beneficiaryMembersData.filter(Boolean) as { id: string; firstName: string; lastName: string; idNumber: string; role: string; }[]
+      const validBeneficiaries = beneficiaryMembersData.filter(Boolean)
       setBeneficiaries(validBeneficiaries)
       
       // Check if we have saved bank details in localStorage
@@ -611,7 +586,6 @@ export function Claims({ userRole }: ClaimsProps) {
       
     } catch (error) {
       console.error('Error looking up policy:', error)
-      setError("Failed to lookup policy. Please try again.");
       toast({
         variant: "destructive",
         title: "Error",
@@ -689,14 +663,6 @@ export function Claims({ userRole }: ClaimsProps) {
             ? { ...detail, statementUrl: downloadUrl }
             : detail
         ))
-        
-        // Also update currentBankDetail if it matches the bankDetailId
-        if (currentBankDetail && currentBankDetail.id === bankDetailId) {
-          setCurrentBankDetail({
-            ...currentBankDetail,
-            statementUrl: downloadUrl
-          });
-        }
       }
 
       toast({
@@ -768,7 +734,7 @@ export function Claims({ userRole }: ClaimsProps) {
           accountNumber: detail.accountNumber || "",
           branchCode: detail.branchCode || "",
           statementUrl: detail.statementUrl || ""
-        })) as any,
+        })),
         documents: documents
           .filter(doc => doc.status === "completed" && doc.url)
           .map(doc => ({
@@ -850,142 +816,46 @@ export function Claims({ userRole }: ClaimsProps) {
 
     try {
       setLoadingTracking(true)
-      
-      // First try to get the claim directly using the ID/number
-      const directClaimRef = doc(db, 'Claims', trackingNumber);
-      const directClaimSnap = await getDoc(directClaimRef);
-      
-      let claimData;
-      let documentId;
-      
-      if (directClaimSnap.exists()) {
-        // Direct document approach if ID exists
-        claimData = directClaimSnap.data();
-        documentId = directClaimSnap.id;
-      } else {
-        // Try using claim number query as fallback
-        const claimsRef = collection(db, 'Claims');
-        const claimQuery = query(claimsRef, where("claimNumber", "==", trackingNumber));
-        const querySnapshot = await getDocs(claimQuery);
+      const claimsRef = collection(db, 'Claims')
+      const q = query(
+        claimsRef,
+        where("claimNumber", "==", trackingNumber)
+      )
+      const querySnapshot = await getDocs(q)
 
       if (querySnapshot.empty) {
         toast({
           variant: "destructive",
           title: "Not Found",
           description: "No claim found with the provided number"
-          });
-          setTrackedClaims([]);
-          return;
+        })
+        return
+      }
+
+      const claims = querySnapshot.docs.map(doc => {
+        const data = doc.data()
+        return {
+          claimNumber: data.claimNumber,
+          submissionDate: data.submissionDate?.toDate() || new Date(),
+          status: data.status,
+          policyNumber: data.policyNumber,
+          claimantName: data.claimantName,
+          documents: data.documents || []
         }
-        
-        const doc = querySnapshot.docs[0];
-        claimData = doc.data();
-        documentId = doc.id;
-      }
-      
-      // Get the lookup ID - either the claim number or document ID
-      const lookupId = claimData.claimNumber || documentId;
-      
-      // Fetch policy details
-      let policyData = null;
-      const policyRef = doc(db, 'ClaimPolicies', lookupId);
-      const policySnap = await getDoc(policyRef);
-      if (policySnap.exists()) {
-        policyData = policySnap.data();
-      }
-      
-      // Fetch deceased details
-      let deceasedData = null;
-      const deceasedRef = doc(db, 'ClaimDeceased', lookupId);
-      const deceasedSnap = await getDoc(deceasedRef);
-      if (deceasedSnap.exists()) {
-        deceasedData = deceasedSnap.data();
-      }
-      
-      // Get bank details
-      let bankDetailsArray = [];
-      // Check if bank details are in the main claim document as an array
-      if (claimData.bankDetails && Array.isArray(claimData.bankDetails)) {
-        bankDetailsArray = claimData.bankDetails.map((detail, index) => ({
-          id: index.toString(),
-          ...detail
-        }));
-      } else {
-        // Try the subcollection
-        const bankDetailsCollectionRef = collection(db, 'Claims', documentId, 'bankDetails');
-        const bankDetailsQuery = query(bankDetailsCollectionRef);
-        const bankDetailsSnap = await getDocs(bankDetailsQuery);
-        
-        if (!bankDetailsSnap.empty) {
-          bankDetailsArray = bankDetailsSnap.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          }));
-        } else {
-          // Check ClaimBankDetails collection
-          const singleBankRef = doc(db, 'ClaimBankDetails', lookupId);
-          const singleBankSnap = await getDoc(singleBankRef);
-          
-          if (singleBankSnap.exists()) {
-            const bankData = singleBankSnap.data();
-            
-            if (bankData.bankDetails && Array.isArray(bankData.bankDetails)) {
-              bankDetailsArray = bankData.bankDetails.map((detail, index) => ({
-                id: index.toString(),
-                ...detail
-              }));
-            } else if (bankData.bankName && bankData.accountNumber) {
-              bankDetailsArray = [{ id: 'legacy', ...bankData }];
-            }
-          }
-        }
-      }
-      
-      // Fetch documents
-      let documentsData = [];
-      const documentsRef = doc(db, 'ClaimDocuments', lookupId);
-      const documentsSnap = await getDoc(documentsRef);
-      if (documentsSnap.exists() && documentsSnap.data()?.documents) {
-        documentsData = documentsSnap.data()?.documents || [];
-      }
-      
-      // Combine all data
-      const fullClaimData = {
-        id: documentId,
-        claimNumber: claimData.claimNumber,
-        submissionDate: claimData.submissionDate?.toDate() || claimData.createdAt?.toDate() || new Date(),
-        status: claimData.status,
-        contractNumber: claimData.contractNumber,
-        policyNumber: claimData.policyNumber || policyData?.policyNumber,
-        claimantName: claimData.claimantName,
-        relationship: claimData.relationship,
-        serviceDate: claimData.serviceDate,
-        serviceProvider: claimData.serviceProvider,
-        location: claimData.location,
-        policy: policyData ? {
-          policyNumber: policyData.policyNumber,
-          holderName: policyData.holderName,
-          coverageAmount: policyData.coverageAmount
-        } : null,
-        deceased: deceasedData,
-        bankDetails: bankDetailsArray,
-        documents: documentsData || claimData.documents || []
-      };
-      
-      setTrackedClaims([fullClaimData]);
-      
+      })
+
+      setTrackedClaims(claims)
     } catch (error) {
-      console.error('Error tracking claim:', error);
+      console.error('Error tracking claim:', error)
       toast({
         variant: "destructive",
         title: "Error",
         description: "Failed to track claim. Please try again."
-      });
-      setTrackedClaims([]);
+      })
     } finally {
-      setLoadingTracking(false);
+      setLoadingTracking(false)
     }
-  };
+  }
 
   const getStatusBadgeVariant = (status: string) => {
     switch (status.toLowerCase()) {
@@ -1001,9 +871,6 @@ export function Claims({ userRole }: ClaimsProps) {
   }
 
   const handleTabChange = (value: string) => {
-    // Clear any error messages when switching tabs
-    setError(null);
-    
     // Always allow access to tracking and policy lookup tabs
     if (value === "tracking" || value === "policy-lookup") {
       setActiveTab(value)
@@ -1116,7 +983,7 @@ export function Claims({ userRole }: ClaimsProps) {
       const waitingPeriod = causeSnapshot.docs[0].data().waitingPeriod || 0;
       
       // 2. Calculate contract duration (months between contract creation and today)
-      const contractCreatedAt = (contractData as any).createdAt?.toDate() || new Date();
+      const contractCreatedAt = contractData.createdAt?.toDate() || new Date();
       const today = new Date();
       
       // Calculate months between dates
@@ -1223,9 +1090,7 @@ export function Claims({ userRole }: ClaimsProps) {
 
   // Add function to handle bank detail edit
   const handleEditBankDetail = (detail: BankDetail) => {
-    // Keep a copy of the original bank detail
-    setOriginalBankDetail({...detail})
-    setCurrentBankDetail({...detail})
+    setCurrentBankDetail(detail)
     setBankDetailsDialogOpen(true)
   }
 
@@ -1233,20 +1098,14 @@ export function Claims({ userRole }: ClaimsProps) {
   const handleSaveBankDetail = () => {
     if (!currentBankDetail) return
     
+    // Save the bank detail first before doing anything else
     setBankDetails(prev => prev.map(detail => 
       detail.id === currentBankDetail.id ? currentBankDetail : detail
     ))
     
+    // Then close the dialog and reset the current bank detail
     setBankDetailsDialogOpen(false)
     setCurrentBankDetail(null)
-    setOriginalBankDetail(null)
-  }
-
-  // Add function to cancel bank detail edit
-  const handleCancelBankDetailEdit = () => {
-    setBankDetailsDialogOpen(false)
-    setCurrentBankDetail(null)
-    setOriginalBankDetail(null)
   }
 
   // Update the deceased person selection handler to call the new function
@@ -1440,16 +1299,7 @@ export function Claims({ userRole }: ClaimsProps) {
                 </Button>
               </div>
 
-              {/* Display error message */}
-              {error && (
-                <Alert variant="destructive" className="mt-4">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>Error</AlertTitle>
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-              
-              {policyDetails && (
+              {contractData && (
                 <div className="space-y-4">
                   <Alert>
                     <CheckCircle2 className="h-4 w-4" />
@@ -1462,7 +1312,7 @@ export function Claims({ userRole }: ClaimsProps) {
                   <Card className="mt-6">
                     <CardContent className="pt-6">
                       <ContractSummary
-                        data={contractData as any}
+                        data={contractData}
                         onEdit={() => {}}
                       />
                     </CardContent>
@@ -1887,58 +1737,68 @@ export function Claims({ userRole }: ClaimsProps) {
         </TabsContent>
 
         <TabsContent value="claim-form">
-          <Card className="border-none shadow-none">
-            <CardContent className="pt-6">
-              <h2 className="text-2xl font-bold mb-6">Claim Details</h2>
-              
-              <div className="grid gap-8">
-                {/* First row: Contract Number and Claim Number */}
-                <div className="grid gap-6 grid-cols-1 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Claim Details</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid gap-6 md:grid-cols-2">
+                <div className="space-y-4">
     <div>
-                    <Label className="text-base font-medium">Contract Number</Label>
+                    <Label>Contract Number</Label>
                     <Input
-                      className="mt-2"
                       value={contractData?.mainMember.contractNumber || ""}
                       disabled
                     />
                   </div>
                   <div>
-                    <Label className="text-base font-medium">Claim Number</Label>
+                    <Label>Claim Number</Label>
                     <Input
-                      className="mt-2"
                       value={claimNumber || "Will be generated on submission"}
                       disabled
                     />
                   </div>
-                  </div>
-                
-                {/* Second row: Service Date, Service Provider, Location */}
-                <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
                   <div>
-                    <Label className="text-base font-medium">Service Date</Label>
-                    <div className="relative mt-2">
+                    <Label>Claimant Name</Label>
+                    <Input
+                      value={formData.claimantName || (deceasedInfo.relationship === "Main Policy Holder" 
+                        ? contractData?.beneficiaries[0]?.personalInfo.firstName + " " + contractData?.beneficiaries[0]?.personalInfo.lastName
+                        : contractData?.mainMember.personalInfo.firstName + " " + contractData?.mainMember.personalInfo.lastName)}
+                      onChange={(e) => setFormData(prev => ({ ...prev, claimantName: e.target.value }))}
+                      disabled
+                    />
+                  </div>
+                  <div>
+                    <Label>Relationship to Deceased</Label>
+                    <Input
+                      value={formData.relationship || (deceasedInfo.relationship === "Main Policy Holder"
+                        ? contractData?.beneficiaries[0]?.personalInfo.relationshipToMainMember || "Beneficiary"
+                        : "Main Policy Holder")}
+                      onChange={(e) => setFormData(prev => ({ ...prev, relationship: e.target.value }))}
+                      disabled
+                    />
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <Label>Service Date</Label>
                     <Input
                       type="date"
-                        className="pr-10"
                       value={formData.serviceDate}
                       onChange={(e) => setFormData(prev => ({ ...prev, serviceDate: e.target.value }))}
                     />
-                      <CalendarIcon className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    </div>
                   </div>
                   <div>
-                    <Label className="text-base font-medium">Service Provider</Label>
+                    <Label>Service Provider</Label>
                     <Input
-                      className="mt-2"
                       value={formData.serviceProvider}
                       onChange={(e) => setFormData(prev => ({ ...prev, serviceProvider: e.target.value }))}
                       placeholder="Enter service provider name"
                     />
                   </div>
                   <div>
-                    <Label className="text-base font-medium">Location</Label>
+                    <Label>Location</Label>
                     <Input
-                      className="mt-2"
                       value={formData.location}
                       onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))}
                       placeholder="Enter service location"
@@ -1947,7 +1807,15 @@ export function Claims({ userRole }: ClaimsProps) {
                 </div>
               </div>
 
-              <div className="mt-8 flex justify-end gap-4">
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Important Notice</AlertTitle>
+                <AlertDescription>
+                  Please ensure all information provided is accurate. False or misleading information may result in claim rejection.
+                </AlertDescription>
+              </Alert>
+
+              <div className="flex justify-end gap-4">
                 <Button variant="outline" onClick={() => setActiveTab("documents")}>
                   Back
                 </Button>
@@ -2186,6 +2054,8 @@ export function Claims({ userRole }: ClaimsProps) {
                     <TableHeader>
                       <TableRow className="bg-muted/50">
                         <TableHead className="w-[180px]">Claim Number</TableHead>
+                        <TableHead className="w-[150px]">Claimant Name</TableHead>
+                        <TableHead className="w-[150px]">Relationship</TableHead>
                         <TableHead className="w-[120px]">Service Date</TableHead>
                         <TableHead className="w-[150px]">Service Provider</TableHead>
                         <TableHead className="w-[180px]">Location</TableHead>
@@ -2194,6 +2064,8 @@ export function Claims({ userRole }: ClaimsProps) {
                     <TableBody>
                       <TableRow>
                         <TableCell className="font-medium">{claimNumber || "Will be generated on submission"}</TableCell>
+                        <TableCell>{formData.claimantName}</TableCell>
+                        <TableCell>{formData.relationship}</TableCell>
                         <TableCell>{formData.serviceDate}</TableCell>
                         <TableCell>{formData.serviceProvider}</TableCell>
                         <TableCell className="truncate max-w-[180px]" title={formData.location}>
@@ -2201,8 +2073,8 @@ export function Claims({ userRole }: ClaimsProps) {
                         </TableCell>
                       </TableRow>
                       <TableRow>
-                        <TableCell colSpan={1} className="font-medium bg-muted/20">Status</TableCell>
-                        <TableCell colSpan={3} className="bg-muted/20">
+                        <TableCell colSpan={2} className="font-medium bg-muted/20">Status</TableCell>
+                        <TableCell colSpan={4} className="bg-muted/20">
                           <Select
                             value={claimStatus}
                             onValueChange={handleStatusChange}
@@ -2282,13 +2154,13 @@ export function Claims({ userRole }: ClaimsProps) {
 
                 {trackedClaims.length > 0 ? (
                   <div className="space-y-6">
-                    {trackedClaims.map((claim: any) => (
-                      <Card key={claim.claimNumber || claim.id} className="p-6">
+                    {trackedClaims.map((claim) => (
+                      <Card key={claim.claimNumber} className="p-6">
                         <div className="space-y-4">
                           <div className="flex justify-between items-start">
                             <div>
                               <h3 className="text-lg font-semibold">
-                                Claim #{claim.claimNumber || claim.id}
+                                Claim #{claim.claimNumber}
                               </h3>
                               <p className="text-sm text-muted-foreground">
                                 Submitted on {format(claim.submissionDate, 'PPP')}
@@ -2298,439 +2170,4 @@ export function Claims({ userRole }: ClaimsProps) {
                               {claim.status}
                             </Badge>
                           </div>
-
-                          <Tabs defaultValue="claim-info" className="w-full">
-                            <TabsList className="grid w-full grid-cols-4">
-                              <TabsTrigger value="claim-info">Claim Info</TabsTrigger>
-                              <TabsTrigger value="policy-info">Policy Info</TabsTrigger>
-                              <TabsTrigger value="deceased-info">Deceased Info</TabsTrigger>
-                              <TabsTrigger value="bank-info">Bank Details</TabsTrigger>
-                            </TabsList>
-
-                            <div className="mt-4 border rounded-md p-4">
-                              <TabsContent value="claim-info">
-                                <Table>
-                                  <TableHeader>
-                                    <TableRow className="bg-muted/50">
-                                      <TableHead>Claim Number</TableHead>
-                                      <TableHead>Service Date</TableHead>
-                                      <TableHead>Service Provider</TableHead>
-                                      <TableHead>Location</TableHead>
-                                    </TableRow>
-                                  </TableHeader>
-                                  <TableBody>
-                                    <TableRow>
-                                      <TableCell>{claim.claimNumber || claim.id}</TableCell>
-                                      <TableCell>{claim.serviceDate || 'N/A'}</TableCell>
-                                      <TableCell>{claim.serviceProvider || 'N/A'}</TableCell>
-                                      <TableCell>{claim.location || 'N/A'}</TableCell>
-                                    </TableRow>
-                                  </TableBody>
-                                </Table>
-                              </TabsContent>
-
-                              <TabsContent value="policy-info">
-                                <Table>
-                                  <TableHeader>
-                                    <TableRow className="bg-muted/50">
-                                      <TableHead>Contract Number</TableHead>
-                                      <TableHead>Policy Holder</TableHead>
-                                      <TableHead>Cover Amount</TableHead>
-                                      <TableHead>Policy Status</TableHead>
-                                    </TableRow>
-                                  </TableHeader>
-                                  <TableBody>
-                                    <TableRow>
-                                      <TableCell>{claim.contractNumber || 'N/A'}</TableCell>
-                                      <TableCell>{claim.policy?.holderName || 'N/A'}</TableCell>
-                                      <TableCell>R{claim.policy?.coverageAmount?.toFixed(2) || '0.00'}</TableCell>
-                                      <TableCell>{claim.status || 'Active'}</TableCell>
-                                    </TableRow>
-                                  </TableBody>
-                                </Table>
-                              </TabsContent>
-
-                              <TabsContent value="deceased-info">
-                                {claim.deceased ? (
-                                  <Table>
-                                    <TableHeader>
-                                      <TableRow className="bg-muted/50">
-                                        <TableHead>Full Name</TableHead>
-                                        <TableHead>ID Number</TableHead>
-                                        <TableHead>Date of Death</TableHead>
-                                        <TableHead>Cause of Death</TableHead>
-                                        <TableHead>Relationship</TableHead>
-                                      </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                      <TableRow>
-                                        <TableCell>{claim.deceased.firstName} {claim.deceased.lastName}</TableCell>
-                                        <TableCell>{claim.deceased.idNumber}</TableCell>
-                                        <TableCell>{claim.deceased.dateOfDeath}</TableCell>
-                                        <TableCell>{claim.deceased.causeOfDeath}</TableCell>
-                                        <TableCell>{claim.deceased.relationship}</TableCell>
-                                      </TableRow>
-                                    </TableBody>
-                                  </Table>
-                                ) : (
-                                  <div className="py-3 text-center text-muted-foreground">No deceased information available</div>
-                                )}
-                              </TabsContent>
-
-                              <TabsContent value="bank-info">
-                                {claim.bankDetails && claim.bankDetails.length > 0 ? (
-                                  <Table>
-                                    <TableHeader>
-                                      <TableRow className="bg-muted/50">
-                                        <TableHead>Holder</TableHead>
-                                        <TableHead>Bank</TableHead>
-                                        <TableHead>Type</TableHead>
-                                        <TableHead>Number</TableHead>
-                                        <TableHead>Branch</TableHead>
-                                      </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                      {claim.bankDetails.map((bankDetail: { id?: string; accountHolder: string; bankName: string; accountType: string; accountNumber: string; branchCode: string; statementUrl?: string }, index: number) => (
-                                        <TableRow key={bankDetail.id || index}>
-                                          <TableCell>{bankDetail.accountHolder}</TableCell>
-                                          <TableCell>{bankDetail.bankName}</TableCell>
-                                          <TableCell>{bankDetail.accountType}</TableCell>
-                                          <TableCell>{bankDetail.accountNumber}</TableCell>
-                                          <TableCell>{bankDetail.branchCode}</TableCell>
-                                        </TableRow>
-                                      ))}
-                                    </TableBody>
-                                  </Table>
-                                ) : (
-                                  <div className="py-3 text-center text-muted-foreground">No bank details available</div>
-                                )}
-                              </TabsContent>
-                                </div>
-                          </Tabs>
-
-                            <div>
-                              <h4 className="font-medium mb-2">Documents</h4>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                              {claim.documents && claim.documents.length > 0 ? (
-                                claim.documents.map((doc: { type: string; url: string }, index: number) => (
-                                  <div 
-                                    key={index} 
-                                    className="flex items-center justify-between p-3 rounded-md border"
-                                  >
-                                    <span className="text-sm font-medium truncate">{doc.type}</span>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => window.open(doc.url, '_blank')}
-                                    >
-                                      <Eye className="h-4 w-4" />
-                                    </Button>
-                            </div>
-                                ))
-                              ) : (
-                                <div className="col-span-3 py-3 text-center text-muted-foreground">
-                                  No documents available
-                          </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-12">
-                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                      <Search className="h-8 w-8" />
-                      <p>Enter a claim number to track its status</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      <Dialog open={viewingDocument !== null} onOpenChange={(open) => !open && setViewingDocument(null)}>
-        <DialogContent className="max-w-4xl">
-          <DialogHeader className="border-b pb-4">
-            <DialogTitle className="text-xl font-semibold flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              {viewingDocument?.type}
-            </DialogTitle>
-          </DialogHeader>
-          
-          <div className="flex flex-col min-h-[60vh]">
-            <div className="grid md:grid-cols-[1fr,300px] gap-6 pt-2 flex-1">
-              {/* Document Section */}
-              <div className="relative bg-gray-50 rounded-lg overflow-hidden border shadow-inner">
-                <div className="absolute inset-0 flex items-center justify-center">
-                  {isImageLoading && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-100/90 backdrop-blur-sm z-10 gap-3">
-                      <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                      <p className="text-sm text-muted-foreground animate-pulse">Loading document...</p>
-                    </div>
-                  )}
-                  {viewingDocument?.url && (
-                    <iframe
-                      src={viewingDocument.url}
-                      className="w-full h-full"
-                      title={viewingDocument.type}
-                    />
-                  )}
-                </div>
-                <div className="aspect-[3/4] md:aspect-auto md:h-[60vh]" />
-              </div>
-
-              {/* Details Section */}
-              <div className="space-y-4">
-                <div className="rounded-lg border bg-card p-4 shadow-sm">
-                  <h3 className="font-semibold mb-4 flex items-center gap-2 text-primary">
-                    <FileText className="h-4 w-4" />
-                    Document Information
-                  </h3>
-                  <dl className="space-y-3 text-sm">
-                    <div className="grid grid-cols-[100px,1fr] items-center py-1 border-b">
-                      <dt className="text-muted-foreground">Type:</dt>
-                      <dd className="font-medium">{viewingDocument?.type}</dd>
-                    </div>
-                    <div className="grid grid-cols-[100px,1fr] items-center py-1">
-                      <dt className="text-muted-foreground">Status:</dt>
-                      <dd>
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          Uploaded
-                        </span>
-                      </dd>
-                    </div>
-                  </dl>
-                </div>
-
-                <div className="rounded-lg border bg-card p-4 shadow-sm">
-                  <h3 className="font-semibold mb-4 flex items-center gap-2 text-primary">
-                    <Download className="h-4 w-4" />
-                    Actions
-                  </h3>
-                  <div className="space-y-3">
-                    <Button 
-                      className="w-full justify-start" 
-                      variant="outline"
-                      onClick={() => window.open(viewingDocument?.url, '_blank')}
-                    >
-                      <Eye className="mr-2 h-4 w-4" />
-                      Open in New Tab
-                    </Button>
-                    <Button 
-                      className="w-full justify-start" 
-                      variant="outline"
-                      onClick={() => {
-                        const link = document.createElement('a')
-                        link.href = viewingDocument?.url || ''
-                        link.download = `document-${viewingDocument?.type}`
-                        link.click()
-                      }}
-                    >
-                      <Download className="mr-2 h-4 w-4" />
-                      Download Document
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end border-t mt-6 pt-4">
-              <Button
-                variant="outline"
-                onClick={() => setViewingDocument(null)}
-                className="px-8"
-              >
-                Close
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={successDialogOpen} onOpenChange={setSuccessDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-green-600">
-              <CheckCircle2 className="h-5 w-5" />
-              Claim Submitted Successfully
-            </DialogTitle>
-          </DialogHeader>
-          <div className="py-4">
-            <div className="flex flex-col items-center space-y-4">
-              <div className="rounded-full bg-green-50 p-3">
-                <CheckCircle2 className="h-8 w-8 text-green-600" />
-              </div>
-              <div className="text-center space-y-2">
-                <p className="text-lg font-semibold">Claim #{submittedClaimDetails?.claimNumber}</p>
-                <Badge variant="outline" className="font-medium">
-                  {submittedClaimDetails?.status}
-                </Badge>
-                <p className="text-sm text-gray-500">
-                  Please save this claim number for future reference
-                </p>
-              </div>
-              <div className="w-full space-y-3 border rounded-lg p-4 bg-gray-50">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Claimant Name:</span>
-                  <span className="font-medium">{submittedClaimDetails?.claimantName}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Service Date:</span>
-                  <span className="font-medium">{submittedClaimDetails?.serviceDate}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Service Provider:</span>
-                  <span className="font-medium">{submittedClaimDetails?.serviceProvider}</span>
-                </div>
-                </div>
-              </div>
-              </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSuccessDialogOpen(false)}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Bank Details Edit Dialog */}
-      <Dialog open={bankDetailsDialogOpen} onOpenChange={(open) => {
-        // Only handle programmatic closes here (like clicking outside)
-        // For explicit Cancel/Save button clicks, we'll handle those separately
-        if (!open) {
-          // Just close the dialog without saving changes
-          handleCancelBankDetailEdit();
-        } else {
-          // Opening the dialog - handled by handleEditBankDetail
-          setBankDetailsDialogOpen(open);
-        }
-      }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Edit Bank Details</DialogTitle>
-          </DialogHeader>
-          {currentBankDetail && (
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label>Account Holder</Label>
-                <Input
-                  value={currentBankDetail.accountHolder}
-                  disabled
-                />
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="bankName">Bank Name</Label>
-                  <Select
-                    value={currentBankDetail.bankName}
-                    onValueChange={(value) => {
-                      setCurrentBankDetail({...currentBankDetail, bankName: value})
-                    }}
-                  >
-                    <SelectTrigger id="bankName">
-                      <SelectValue placeholder="Select bank" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ABSA">ABSA</SelectItem>
-                      <SelectItem value="Capitec">Capitec</SelectItem>
-                      <SelectItem value="FNB">FNB</SelectItem>
-                      <SelectItem value="Nedbank">Nedbank</SelectItem>
-                      <SelectItem value="Standard Bank">Standard Bank</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div className="grid gap-2">
-                  <Label htmlFor="accountType">Account Type</Label>
-                  <Select
-                    value={currentBankDetail.accountType}
-                    onValueChange={(value) => {
-                      setCurrentBankDetail({...currentBankDetail, accountType: value})
-                    }}
-                  >
-                    <SelectTrigger id="accountType">
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Savings">Savings</SelectItem>
-                      <SelectItem value="Cheque">Cheque</SelectItem>
-                      <SelectItem value="Current">Current</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="accountNumber">Account Number</Label>
-                  <Input
-                    id="accountNumber"
-                    value={currentBankDetail.accountNumber}
-                    onChange={(e) => {
-                      setCurrentBankDetail({...currentBankDetail, accountNumber: e.target.value})
-                    }}
-                    placeholder="Enter account number"
-                  />
-                </div>
-                
-                <div className="grid gap-2">
-                  <Label htmlFor="branchCode">Branch Code</Label>
-                  <Input
-                    id="branchCode"
-                    value={currentBankDetail.branchCode}
-                    onChange={(e) => {
-                      setCurrentBankDetail({...currentBankDetail, branchCode: e.target.value})
-                    }}
-                    placeholder="Enter branch code"
-                  />
-                </div>
-              </div>
-              
-              <div className="grid gap-2">
-                <Label htmlFor="bankStatement">Bank Statement</Label>
-                {currentBankDetail?.statementUrl ? (
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-500" />
-                    <span className="text-sm">Bank Statement uploaded</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      id="bankStatement"
-                      type="file"
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          handleFileUpload(file, "Bank Statement", currentBankDetail?.id);
-                        }
-                      }}
-                      disabled={documents.some(doc => doc.type === "Bank Statement" && doc.status === "uploading")}
-                    />
-                    {documents.some(doc => doc.type === "Bank Statement" && doc.status === "uploading") && (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={handleCancelBankDetailEdit}>
-              Cancel
-            </Button>
-            <Button onClick={handleSaveBankDetail}>
-              Save Changes
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
-}
 

@@ -85,18 +85,25 @@ export function CateringOptions({ selectedOptions, onChange }: CateringOptionsPr
 
   const handleOptionToggle = async (optionId: string) => {
     try {
+      console.log('Toggling option:', optionId);
       setTogglingOption(optionId)
       const option = availableOptions.find(opt => opt.id === optionId)
-      if (!option) return
+      if (!option) {
+        console.error('Option not found:', optionId);
+        return;
+      }
 
-      if (selectedOptions.some(opt => opt.id === optionId)) {
-        onChange(selectedOptions.filter(opt => opt.id !== optionId))
+      const isCurrentlySelected = selectedOptions.some(opt => opt.id === optionId);
+      console.log('Is currently selected:', isCurrentlySelected);
+
+      if (isCurrentlySelected) {
+        onChange(selectedOptions.filter(opt => opt.id !== optionId));
       } else {
         onChange([...selectedOptions, {
           id: option.id,
           name: option.name,
           price: option.price
-        }])
+        }]);
       }
     } catch (err) {
       console.error('Error toggling option:', err)

@@ -209,7 +209,7 @@ export async function saveClaimData({
     // 3. Save Bank Details
     const bankRef = doc(db, 'ClaimBankDetails', claimNumber)
     batch.set(bankRef, {
-      ...bankDetails,
+      bankDetails,
       contractNumber,
       claimNumber,
       createdAt: serverTimestamp()

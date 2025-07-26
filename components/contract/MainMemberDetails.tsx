@@ -1,11 +1,11 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, ReactNode } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { MainMemberForm } from "./MainMemberForm"
 import { Card } from "@/components/ui/card"
-import { collection, addDoc, doc, setDoc, query, where, getDocs, updateDoc, getDoc } from "firebase/firestore"
+import { collection, addDoc, doc, setDoc, query, where, getDocs, updateDoc, getDoc, deleteDoc, QuerySnapshot, DocumentData } from "firebase/firestore"
 import { db } from "@/src/FirebaseConfg"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -14,6 +14,8 @@ import { Badge } from "@/components/ui/badge"
 import { Loader2, AlertCircle, FileText, UserPlus, UserCog, Pencil } from "lucide-react"
 import { validateSouthAfricanID } from "@/src/utils/idValidation"
 import { toast } from "@/components/ui/use-toast"
+import { createMemberRelationship, checkMainMemberExistingContract } from "@/lib/member-relationship-service"
+import { format } from "date-fns"
 
 type MainMemberData = {
   personalInfo: {
@@ -214,116 +216,267 @@ export function MainMemberDetails({
 
   const handleEdit = (member: MainMemberData) => {
     setEditingMember(member)
+    setFormData(member)
     setIsEditDialogOpen(true)
   }
 
   const handleUpdate = async () => {
-    if (!editingMember || !mainMember.contractId) return
+    if (!formData || !mainMember.contractNumber) return;
 
-    setIsUpdating(true)
+    setSaving(true);
+    setIsUpdating(true);
     try {
       // Validate the data before updating
-      const errors = validateMainMemberData(editingMember)
+      const errors = validateMainMemberData(formData);
       if (errors) {
-        setValidationErrors(errors)
-        return
+        setValidationErrors(errors);
+        setSaving(false);
+        return;
       }
 
-      // Update in Firestore
-      const mainMemberRef = doc(db, 'Contracts', mainMember.contractId)
-      await updateDoc(mainMemberRef, {
-        mainMember: editingMember
-      })
+      // Show updating toast
+      toast({
+        title: "Updating Member Details",
+        description: "Please wait while we update the member information...",
+        variant: "default",
+      });
+
+      // Get member relationship to find the member ID
+      const relationshipsRef = collection(db, 'member_contract_relationships');
+      const relationshipQuery = query(
+        relationshipsRef,
+        where('contract_number', '==', mainMember.contractNumber),
+        where('role', '==', 'Main Member')  // Changed from 'Main' to 'Main Member'
+      );
+      const relationshipSnapshot = await getDocs(relationshipQuery);
+
+      if (relationshipSnapshot.empty) {
+        throw new Error('Member relationship not found');
+      }
+
+      const memberId = relationshipSnapshot.docs[0].data().member_id;
+      
+      // Update member in Members collection
+      const memberRef = doc(db, 'Members', memberId);
+      await updateDoc(memberRef, {
+        ...formData.personalInfo,
+        updatedAt: new Date(),
+        lastModified: new Date(),
+        modifiedBy: userRole || 'system'
+      });
+
+      // Update contact details
+      const contactsRef = collection(db, 'Contacts');
+      const existingContactsQuery = query(contactsRef, where('memberId', '==', memberId));
+      const existingContacts = await getDocs(existingContactsQuery);
+      
+      // Delete existing contacts
+      await Promise.all(existingContacts.docs.map(doc => deleteDoc(doc.ref)));
+      
+      // Add new contacts
+      await Promise.all(formData.contactDetails.map(contact =>
+        addDoc(contactsRef, {
+          ...contact,
+          memberId,
+          memberIdNumber: formData.personalInfo.idNumber,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          modifiedBy: userRole || 'system'
+        })
+      ));
+
+      // Update address
+      const addressRef = collection(db, 'Address');
+      const existingAddressQuery = query(addressRef, where('memberId', '==', memberId));
+      const existingAddress = await getDocs(existingAddressQuery);
+      
+      if (!existingAddress.empty) {
+        await updateDoc(existingAddress.docs[0].ref, {
+          ...formData.addressDetails,
+          updatedAt: new Date(),
+          modifiedBy: userRole || 'system'
+        });
+      } else {
+        await addDoc(addressRef, {
+          ...formData.addressDetails,
+          memberId,
+          memberIdNumber: formData.personalInfo.idNumber,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          modifiedBy: userRole || 'system'
+        });
+      }
 
       // Update local state
       updateMainMember({
-        ...editingMember,
+        ...formData,
         contractNumber: mainMember.contractNumber,
         contractId: mainMember.contractId
-      })
+      });
       
       // Close dialog and reset states
-      setIsEditDialogOpen(false)
-      setEditingMember(null)
-      setValidationErrors(null)
+      setIsEditDialogOpen(false);
+      setEditingMember(null);
+      setValidationErrors(null);
       
       // Show success message
       toast({
         title: "Success",
-        description: "Main member details updated successfully",
-      })
+        description: `Member ${formData.personalInfo.firstName} ${formData.personalInfo.lastName} has been updated successfully.`,
+        variant: "default",
+      });
+
     } catch (error) {
-      console.error('Error updating main member:', error)
+      console.error('Error updating member:', error);
       toast({
         title: "Error",
-        description: "Failed to update main member details. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to update member details. Please try again.",
         variant: "destructive",
-      })
+      });
     } finally {
-      setIsUpdating(false)
+      setSaving(false);
+      setIsUpdating(false);
     }
-  }
+  };
 
   const saveToFirestore = async (data: MainMemberData) => {
     setSaving(true)
     setError(null)
     try {
-      // First, save personal info to Members collection
-      const memberRef = await addDoc(collection(db, 'Members'), {
-        ...data.personalInfo,
-        id: data.personalInfo.idNumber,
-        createdAt: new Date()
-      })
+      // First check if member is already a main member in any contract
+      const existingContractCheck = await checkMainMemberExistingContract(data.personalInfo.idNumber);
+      if (existingContractCheck.exists) {
+        setError({ 
+          general: `This member is already a main member in contract ${existingContractCheck.contractNumber}. A member cannot be a main member in multiple contracts.` 
+        });
+        return;
+      }
 
-      // Use the member document ID to link contact details
-      const contactPromises = data.contactDetails.map(contact =>
-        addDoc(collection(db, 'Contacts'), {
-          ...contact,
-          memberId: memberRef.id,
+      // Check if member already exists
+      const membersRef = collection(db, 'Members')
+      const memberQuery = query(
+        membersRef,
+        where('idNumber', '==', data.personalInfo.idNumber),
+        where('idType', '==', data.personalInfo.idType)
+      )
+      const memberSnapshot = await getDocs(memberQuery)
+      let memberId: string
+
+      if (!memberSnapshot.empty) {
+        // Member exists - update their details
+        const memberDoc = memberSnapshot.docs[0]
+        memberId = memberDoc.id
+        await updateDoc(doc(db, 'Members', memberId), {
+          ...data.personalInfo,
+          updatedAt: new Date()
+        })
+
+        // Update contact details
+        const contactsRef = collection(db, 'Contacts')
+        const existingContactsQuery = query(contactsRef, where('memberId', '==', memberId))
+        const existingContacts = await getDocs(existingContactsQuery)
+        
+        // Delete existing contacts
+        await Promise.all(existingContacts.docs.map(doc => deleteDoc(doc.ref)))
+        
+        // Add new contacts
+        await Promise.all(data.contactDetails.map(contact =>
+          addDoc(contactsRef, {
+            ...contact,
+            memberId,
+            memberIdNumber: data.personalInfo.idNumber,
+            updatedAt: new Date()
+          })
+        ))
+
+        // Update address
+        const addressRef = collection(db, 'Address')
+        const existingAddressQuery = query(addressRef, where('memberId', '==', memberId))
+        const existingAddress = await getDocs(existingAddressQuery)
+        
+        if (!existingAddress.empty) {
+          await updateDoc(existingAddress.docs[0].ref, {
+            ...data.addressDetails,
+            updatedAt: new Date()
+          })
+        } else {
+          await addDoc(addressRef, {
+            ...data.addressDetails,
+            memberId,
+            memberIdNumber: data.personalInfo.idNumber,
+            createdAt: new Date()
+          })
+        }
+      } else {
+        // Create new member
+        const memberRef = await addDoc(membersRef, {
+          ...data.personalInfo,
+          createdAt: new Date()
+        })
+        memberId = memberRef.id
+
+        // Add contact details
+        await Promise.all(data.contactDetails.map(contact =>
+          addDoc(collection(db, 'Contacts'), {
+            ...contact,
+            memberId,
+            memberIdNumber: data.personalInfo.idNumber,
+            createdAt: new Date()
+          })
+        ))
+
+        // Add address details
+        await addDoc(collection(db, 'Address'), {
+          ...data.addressDetails,
+          memberId,
           memberIdNumber: data.personalInfo.idNumber,
           createdAt: new Date()
         })
-      )
-      await Promise.all(contactPromises)
+      }
 
-      // Save address details with the member reference
-      await addDoc(collection(db, 'Address'), {
-        ...data.addressDetails,
-        memberId: memberRef.id,
-        memberIdNumber: data.personalInfo.idNumber,
-        createdAt: new Date()
-      })
-
-      // Generate a unique contract number
+      // Generate contract number
       const contractNumber = `CNT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 5).toUpperCase()}`
 
-      // Create contract record with only IDs for plan and catering
+      // Create contract record
       const contractRef = await addDoc(collection(db, 'Contracts'), {
         contractNumber,
-        memberId: memberRef.id,
+        memberId,
         memberIdNumber: data.personalInfo.idNumber,
         status: 'In Progress',
         policiesId: selectedPolicies?.policiesId || null,
         cateringOptionIds: selectedCateringOptions?.map(option => option.id) || [],
         totalPremium: (selectedPolicies?.premium || 0) + 
           (selectedCateringOptions?.reduce((sum, option) => sum + option.price, 0) || 0),
-        createdAt: new Date(),
-        updatedAt: new Date()
+        createdAt: new Date()
       })
 
-      // Update local state with contract information
+      // Create member relationship
+      await createMemberRelationship({
+        memberId,
+        contractNumber,
+        role: 'Main Member'
+      })
+
+      // Update local state
       updateMainMember({
         ...data,
         contractNumber,
         contractId: contractRef.id
       })
-      
+
+      toast({
+        title: "Success",
+        description: memberSnapshot.empty ? 
+          "Main member added successfully" : 
+          "Existing member linked to new contract successfully",
+      })
+
       setIsDialogOpen(false)
       setIsEditDialogOpen(false)
-      setSaving(false)
     } catch (error) {
       console.error('Error saving member data:', error)
       setError({ general: error instanceof Error ? error.message : 'Failed to save member data. Please try again.' })
+    } finally {
       setSaving(false)
     }
   }
@@ -369,17 +522,6 @@ export function MainMemberDetails({
           <h2 className="text-2xl font-bold">Main Member Details</h2>
           <p className="text-sm text-gray-500">Add or manage main member information</p>
         </div>
-        {canEdit && mainMember.personalInfo.firstName && (
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="gap-2"
-            onClick={() => handleEdit(mainMember)}
-          >
-            <Pencil className="h-4 w-4" />
-            Edit Main Member
-          </Button>
-        )}
         {!mainMember.personalInfo.firstName && !existingMember && !loading && (
           <TooltipProvider>
             <Tooltip>
@@ -426,6 +568,7 @@ export function MainMemberDetails({
                       data={emptyMainMember}
                       updateData={setFormData}
                       errors={error || undefined}
+                      isDisabled={saving}
                     />
                     <div className="flex justify-end space-x-2 mt-4">
                       <Button 
@@ -476,6 +619,7 @@ export function MainMemberDetails({
               <th className="text-left p-4">First Name</th>
               <th className="text-left p-4">Last Name</th>
               <th className="text-left p-4">ID Number</th>
+              <th className="text-left p-4">Date of Birth</th>
               <th className="text-right p-4">Actions</th>
             </tr>
           </thead>
@@ -493,6 +637,14 @@ export function MainMemberDetails({
                 </td>
                 <td className="p-4">
                   {mainMember.personalInfo.idNumber || existingMember?.personalInfo.idNumber}
+                </td>
+                <td className="p-4">
+                  {mainMember.personalInfo.dateOfBirth ? 
+                    format(mainMember.personalInfo.dateOfBirth, 'dd/MM/yyyy') : 
+                    existingMember?.personalInfo.dateOfBirth ? 
+                      format(existingMember.personalInfo.dateOfBirth, 'dd/MM/yyyy') : 
+                      'N/A'
+                  }
                 </td>
                 <td className="p-4 text-right">
                   {canEdit && (
@@ -527,7 +679,9 @@ export function MainMemberDetails({
                           <DialogTitle className="flex items-center gap-2">
                             <Pencil className="h-5 w-5" />
                             Edit Main Member Details
-                            {saving && <Loader2 className="h-4 w-4 animate-spin ml-2" />}
+                            {(saving || isUpdating) ? (
+                              <Loader2 className="h-4 w-4 animate-spin ml-2" />
+                            ) : null}
                           </DialogTitle>
                         </DialogHeader>
                         {error && 'general' in error && (
@@ -540,9 +694,10 @@ export function MainMemberDetails({
                           </Alert>
                         )}
                         <MainMemberForm
-                          data={mainMember}
+                          data={formData}
                           updateData={setFormData}
                           errors={error || undefined}
+                          isDisabled={saving || isUpdating}
                         />
                         <div className="flex justify-end space-x-2 mt-4">
                           <Button 
@@ -553,16 +708,16 @@ export function MainMemberDetails({
                                 setError(null)
                               }
                             }}
-                            disabled={saving}
+                            disabled={saving || isUpdating}
                           >
                             Cancel
                           </Button>
                           <Button 
                             onClick={handleUpdate}
-                            disabled={saving}
+                            disabled={saving || isUpdating}
                             className="gap-2"
                           >
-                            {saving ? (
+                            {(saving || isUpdating) ? (
                               <>
                                 <Loader2 className="h-4 w-4 animate-spin" />
                                 Updating...

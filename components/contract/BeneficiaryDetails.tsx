@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, ReactNode } from "react"
+import { useState, ReactNode, useEffect } from "react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
@@ -11,10 +11,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { AlertCircle, UserPlus, UserX, UserCheck, AlertTriangle, Percent } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { createMemberRelationship } from "@/lib/member-relationship-service"
+import { validateSouthAfricanID } from "@/src/utils/idValidation"
+import { toast } from "@/components/ui/use-toast"
 
 import { BeneficiaryForm } from "./BeneficiaryForm"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { addDoc, collection, deleteDoc, getDocs, query, where } from "firebase/firestore"
+import { addDoc, collection, deleteDoc, getDocs, query, where, updateDoc, doc, onSnapshot, getDoc } from "firebase/firestore"
 import { db } from "@/src/FirebaseConfg"
 
 type ValidationErrors = { [key: string]: string } | null;
@@ -90,37 +93,59 @@ const saveBeneficiaryToFirestore = async (
   mainMemberIdNumber: string
 ): Promise<string> => {
   try {
-    // 1. Save personal info to Beneficiaries collection
-    const beneficiaryRef = await addDoc(collection(db, 'Beneficiaries'), {
+    // 1. Save personal info to Members collection
+    const memberRef = await addDoc(collection(db, 'Members'), {
       ...data.personalInfo,
-      contractNumber,
-      mainMemberIdNumber,
+      id: data.personalInfo.idNumber,
       type: 'Beneficiary',
       totalPercentage: data.personalInfo.beneficiaryPercentage,
       createdAt: new Date(),
       updatedAt: new Date()
     })
 
-    // 2. Save contact details with the beneficiary reference
+    // 2. Save contact details with the member reference
     const contactPromises = data.contactDetails.map(contact =>
       addDoc(collection(db, 'Contacts'), {
         ...contact,
-        beneficiaryId: beneficiaryRef.id,
-        contractNumber,
-        mainMemberIdNumber,
+        memberId: memberRef.id,
+        memberIdNumber: data.personalInfo.idNumber,
         type: 'Beneficiary',
         createdAt: new Date(),
         updatedAt: new Date()
       })
     )
 
-    // 3. Save address details with the beneficiary reference
+    // 3. Save address details with the member reference
     await addDoc(collection(db, 'Address'), {
       ...data.addressDetails,
-      beneficiaryId: beneficiaryRef.id,
-      contractNumber,
-      mainMemberIdNumber,
+      memberId: memberRef.id,
+      memberIdNumber: data.personalInfo.idNumber,
       type: 'Beneficiary',
+      createdAt: new Date(),
+      updatedAt: new Date()
+    })
+
+    // 4. Create member relationship
+    const relationshipRef = await addDoc(collection(db, 'member_contract_relationships'), {
+      member_id: memberRef.id,
+      contract_number: contractNumber,
+      role: 'Beneficiary',
+      createdAt: new Date(),
+      updatedAt: new Date()
+    })
+
+    // 5. Save relationship details in Relationship collection
+    await addDoc(collection(db, 'Relationship'), {
+      member_contract_relationship_id: relationshipRef.id,
+      relationshipType: data.personalInfo.relationshipToMainMember,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    })
+
+    // 6. Save benefit details in Benefit collection
+    await addDoc(collection(db, 'Benefit'), {
+      member_contract_relationship_id: relationshipRef.id,
+      percentage: data.personalInfo.beneficiaryPercentage,
       createdAt: new Date(),
       updatedAt: new Date()
     })
@@ -129,7 +154,7 @@ const saveBeneficiaryToFirestore = async (
     await Promise.all(contactPromises)
 
     // Return the Firestore document ID
-    return beneficiaryRef.id
+    return memberRef.id
   } catch (error) {
     console.error('Error saving beneficiary:', error)
     throw error
@@ -138,144 +163,99 @@ const saveBeneficiaryToFirestore = async (
 
 const removeBeneficiaryFromFirestore = async (beneficiaryId: string, contractNumber: string): Promise<void> => {
   try {
-    // Start with beneficiary record check first
-    const beneficiaryQuery = query(
-      collection(db, 'Beneficiaries'),
-      where('id', '==', beneficiaryId),
-      where('contractNumber', '==', contractNumber)
-    )
-    const beneficiarySnapshot = await getDocs(beneficiaryQuery)
-    if (beneficiarySnapshot.empty) {
-      throw new Error('Beneficiary record not found')
-    }
+    // 1. Get the member_contract_relationship record
+    const relationshipsRef = collection(db, 'member_contract_relationships');
+    const relationshipQuery = query(
+      relationshipsRef,
+      where('member_id', '==', beneficiaryId),
+      where('contract_number', '==', contractNumber),
+      where('role', '==', 'Beneficiary')
+    );
+    const relationshipSnapshot = await getDocs(relationshipQuery);
+    
+    if (!relationshipSnapshot.empty) {
+      const memberContractRelationshipId = relationshipSnapshot.docs[0].id;
 
-    // Store deletion promises
-    const deletionPromises: Promise<void>[] = []
-
-    // 1. Check and delete address records
-    const addressQuery = query(
-      collection(db, 'Address'),
-      where('beneficiaryId', '==', beneficiaryId),
-      where('contractNumber', '==', contractNumber),
-      where('type', '==', 'Beneficiary')
-    )
-    const addressSnapshot = await getDocs(addressQuery)
-    if (addressSnapshot.size > 0) {
-      deletionPromises.push(...addressSnapshot.docs.map(doc => deleteDoc(doc.ref)))
-    }
-
-    // 2. Check and delete contact records
-    const contactsQuery = query(
-      collection(db, 'Contacts'),
-      where('beneficiaryId', '==', beneficiaryId),
-      where('contractNumber', '==', contractNumber),
-      where('type', '==', 'Beneficiary')
-    )
-    const contactsSnapshot = await getDocs(contactsQuery)
-    if (contactsSnapshot.size > 0) {
-      deletionPromises.push(...contactsSnapshot.docs.map(doc => deleteDoc(doc.ref)))
-    }
-
-    // 3. Add beneficiary record deletion to promises
-    deletionPromises.push(deleteDoc(beneficiarySnapshot.docs[0].ref))
-
-    // Execute all deletions concurrently
-    await Promise.all(deletionPromises)
-  } catch (error) {
-    console.error('Error removing beneficiary:', error)
-    if (error instanceof Error) {
-      if (error.message === 'Beneficiary record not found') {
-        throw new Error('Cannot find the beneficiary record to delete')
+      // 2. Delete the Relationship record
+      const relationshipTypeQuery = query(
+          collection(db, 'Relationship'),
+        where('member_contract_relationship_id', '==', memberContractRelationshipId)
+      );
+      const relationshipTypeSnapshot = await getDocs(relationshipTypeQuery);
+      if (!relationshipTypeSnapshot.empty) {
+        await deleteDoc(relationshipTypeSnapshot.docs[0].ref);
       }
-      throw new Error(`Failed to remove beneficiary: ${error.message}`)
+
+      // 3. Delete the Benefit record
+        const benefitQuery = query(
+          collection(db, 'Benefit'),
+        where('member_contract_relationship_id', '==', memberContractRelationshipId)
+      );
+      const benefitSnapshot = await getDocs(benefitQuery);
+      if (!benefitSnapshot.empty) {
+        await deleteDoc(benefitSnapshot.docs[0].ref);
+      }
+
+      // 4. Finally delete the member_contract_relationship record
+      await deleteDoc(relationshipSnapshot.docs[0].ref);
+    } else {
+      throw new Error('Cannot find the beneficiary relationship record to delete');
     }
-    throw new Error('An unexpected error occurred while removing the beneficiary')
-  }
-}
-
-const validateBeneficiaryPercentage = async (
-  contractNumber: string, 
-  currentPercentage: number, 
-  existingBeneficiaries: BeneficiaryData[]
-): Promise<boolean> => {
-  try {
-    // Calculate total percentage of existing beneficiaries
-    const totalExistingPercentage = existingBeneficiaries.reduce(
-      (sum, beneficiary) => sum + beneficiary.personalInfo.beneficiaryPercentage,
-      0
-    )
-
-    // Check if adding the new percentage would exceed 100%
-    const totalPercentage = totalExistingPercentage + currentPercentage
-    return totalPercentage <= 100
   } catch (error) {
-    console.error('Error validating beneficiary percentage:', error)
-    return false
+    console.error('Error removing beneficiary:', error);
+    throw new Error('Failed to remove beneficiary relationship records');
   }
-}
+};
 
 const validateBeneficiaryData = (data: BeneficiaryData, existingBeneficiaries: BeneficiaryData[]): string[] => {
-  const errors: string[] = []
+  const errors: string[] = [];
 
   // Personal Info Validation
-  if (!data.personalInfo.title?.trim()) errors.push("Title: Title is required")
-  if (!data.personalInfo.firstName?.trim()) errors.push("First Name: First name is required")
-  if (!data.personalInfo.lastName?.trim()) errors.push("Last Name: Last name is required")
-  if (!data.personalInfo.initials?.trim()) errors.push("Initials: Initials are required")
-  if (!data.personalInfo.dateOfBirth) errors.push("Date of Birth: Date of birth is required")
-  if (!data.personalInfo.gender?.trim()) errors.push("Gender: Gender is required")
-  if (!data.personalInfo.relationshipToMainMember?.trim()) errors.push("Relationship: Relationship to main member is required")
-  if (!data.personalInfo.nationality?.trim()) errors.push("Nationality: Nationality is required")
-  if (!data.personalInfo.idType?.trim()) errors.push("Type of ID: ID type is required")
-  if (!data.personalInfo.idNumber?.trim()) errors.push("ID Number: ID number is required")
-  
-  // Validate beneficiary percentage
-  const percentage = data.personalInfo.beneficiaryPercentage
-  if (typeof percentage !== 'number' || percentage < 0 || percentage > 100) {
-    errors.push("Benefit Percentage: Must be between 0 and 100")
-  } else {
-    // Calculate total percentage including current beneficiary
-    const totalPercentage = existingBeneficiaries.reduce((sum, ben) => 
-      sum + (ben.personalInfo.beneficiaryPercentage || 0), 0) + percentage
-    
-    if (totalPercentage > 100) {
-      errors.push("Benefit Percentage: Total allocation cannot exceed 100%")
-    }
-  }
+  if (!data.personalInfo.title) errors.push("title is required");
+  if (!data.personalInfo.firstName) errors.push("first name is required");
+  if (!data.personalInfo.lastName) errors.push("last name is required");
+  if (!data.personalInfo.initials) errors.push("initials are required");
+  if (!data.personalInfo.dateOfBirth) errors.push("date of birth is required");
+  if (!data.personalInfo.gender) errors.push("gender is required");
+  if (!data.personalInfo.relationshipToMainMember) errors.push("relationship is required");
+  if (!data.personalInfo.nationality) errors.push("nationality is required");
+  if (!data.personalInfo.idType) errors.push("ID type is required");
+  if (!data.personalInfo.idNumber) errors.push("ID number is required");
+  if (!data.personalInfo.beneficiaryPercentage) errors.push("benefit percentage is required");
 
   // Contact Details Validation
-  if (data.contactDetails.length === 0) {
-    errors.push("Contact Details: At least one contact method is required")
+  if (!data.contactDetails || data.contactDetails.length === 0) {
+    errors.push("At least one contact method is required");
   } else {
     data.contactDetails.forEach((contact, index) => {
-      if (!contact.type?.trim()) {
-        errors.push(`Contact ${index + 1}: Contact type is required`)
-      }
-      if (!contact.value?.trim()) {
-        errors.push(`Contact ${index + 1}: Contact value is required`)
-      } else if (contact.type === "Email") {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-        if (!emailRegex.test(contact.value.trim())) {
-          errors.push(`Contact ${index + 1}: Invalid email format`)
-        }
-      } else if (contact.type === "Phone Number") {
-        const phoneRegex = /^[0-9+\-\s()]*$/
-        if (!phoneRegex.test(contact.value.trim())) {
-          errors.push(`Contact ${index + 1}: Invalid phone number format`)
+      if (!contact.type) errors.push(`contact #${index + 1} type is required`);
+      if (!contact.value) errors.push(`contact #${index + 1} value is required`);
+      
+      if (contact.type === "Email" && contact.value) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(contact.value)) {
+          errors.push(`contact #${index + 1} email is invalid`);
         }
       }
-    })
+      
+      if (contact.type === "Phone Number" && contact.value) {
+        const phoneRegex = /^[0-9+\-\s()]{10,}$/;
+        if (!phoneRegex.test(contact.value)) {
+          errors.push(`contact #${index + 1} phone number is invalid`);
+        }
+      }
+    });
   }
 
   // Address Details Validation
-  if (!data.addressDetails.streetAddress?.trim()) errors.push("Street Address: Street address is required")
-  if (!data.addressDetails.city?.trim()) errors.push("City: City is required")
-  if (!data.addressDetails.stateProvince?.trim()) errors.push("State/Province: State/Province is required")
-  if (!data.addressDetails.postalCode?.trim()) errors.push("Postal Code: Postal code is required")
-  if (!data.addressDetails.country?.trim()) errors.push("Country: Country is required")
+  if (!data.addressDetails.streetAddress) errors.push("street address is required");
+  if (!data.addressDetails.city) errors.push("city is required");
+  if (!data.addressDetails.stateProvince) errors.push("state/province is required");
+  if (!data.addressDetails.postalCode) errors.push("postal code is required");
+  if (!data.addressDetails.country) errors.push("country is required");
 
-  return errors
-}
+  return errors;
+};
 
 const validateTabData = (data: BeneficiaryData, tab: TabId): boolean => {
   switch (tab) {
@@ -314,6 +294,28 @@ const validateTabData = (data: BeneficiaryData, tab: TabId): boolean => {
   }
 };
 
+const checkDuplicateBeneficiary = async (idNumber: string): Promise<boolean> => {
+  try {
+    // Check in Members collection instead of Beneficiaries
+    const membersQuery = query(
+      collection(db, 'Members'),
+      where('idNumber', '==', idNumber),
+      where('type', '==', 'Beneficiary')
+    );
+    const snapshot = await getDocs(membersQuery);
+    return !snapshot.empty;
+  } catch (error) {
+    console.error('Error checking for duplicate beneficiary:', error);
+    return false;
+  }
+};
+
+const calculateTotalAllocation = (currentBeneficiaries: BeneficiaryData[]): number => {
+  return Math.round(currentBeneficiaries.reduce((sum, ben) => 
+    sum + Number(ben.personalInfo.beneficiaryPercentage), 0
+  ));
+};
+
 export function BeneficiaryDetails({ 
   beneficiaries, 
   updateBeneficiaries,
@@ -340,117 +342,193 @@ export function BeneficiaryDetails({
     message: null
   });
 
+  useEffect(() => {
+    if (!contractNumber) return;
+
+    // Query for member-contract relationships
+    const relationshipsRef = collection(db, 'member_contract_relationships');
+    const relationshipsQuery = query(
+      relationshipsRef,
+      where('contract_number', '==', contractNumber),
+      where('role', '==', 'Beneficiary')
+    );
+
+    // Set up the real-time listener
+    const unsubscribe = onSnapshot(relationshipsQuery, async (relationshipSnapshot) => {
+      try {
+        const beneficiaryPromises = relationshipSnapshot.docs.map(async (relationshipDoc) => {
+          const memberId = relationshipDoc.data().member_id;
+          const relationshipId = relationshipDoc.id;
+
+          // Get member details
+          const memberDoc = await getDoc(doc(db, 'Members', memberId));
+          if (!memberDoc.exists()) return null;
+          const memberData = memberDoc.data();
+
+          // Get contact details
+          const contactsQuery = query(
+            collection(db, 'Contacts'),
+            where('memberId', '==', memberId)
+          );
+          const contactsSnapshot = await getDocs(contactsQuery);
+          const contactDetails = contactsSnapshot.docs.map(doc => ({
+            type: doc.data().type as "Email" | "Phone Number",
+            value: doc.data().value
+          }));
+
+          // Get address details
+          const addressQuery = query(
+            collection(db, 'Address'),
+            where('memberId', '==', memberId)
+          );
+          const addressSnapshot = await getDocs(addressQuery);
+          const addressData = addressSnapshot.docs[0]?.data() || {
+            streetAddress: '',
+            city: '',
+            stateProvince: '',
+            postalCode: '',
+            country: ''
+          };
+
+          // Get benefit percentage from Benefit collection
+          const benefitQuery = query(
+            collection(db, 'Benefit'),
+            where('member_contract_relationship_id', '==', relationshipId)
+          );
+          const benefitSnapshot = await getDocs(benefitQuery);
+          const benefitPercentage = benefitSnapshot.docs[0]?.data()?.percentage || 0;
+
+          // Get relationship type from Relationship collection
+          const relationshipTypeQuery = query(
+            collection(db, 'Relationship'),
+            where('member_contract_relationship_id', '==', relationshipId)
+          );
+          const relationshipTypeSnapshot = await getDocs(relationshipTypeQuery);
+          const relationshipType = relationshipTypeSnapshot.docs[0]?.data()?.relationshipType || '';
+
+          // Construct beneficiary object
+          const beneficiary: BeneficiaryData = {
+            id: memberId,
+            personalInfo: {
+              title: memberData.title || '',
+              firstName: memberData.firstName || '',
+              lastName: memberData.lastName || '',
+              initials: memberData.initials || '',
+              dateOfBirth: memberData.dateOfBirth ? new Date(memberData.dateOfBirth.seconds * 1000) : null,
+              gender: memberData.gender || '',
+              relationshipToMainMember: relationshipType,
+              nationality: memberData.nationality || '',
+              idType: memberData.idType || 'South African ID',
+              idNumber: memberData.idNumber || '',
+              beneficiaryPercentage: benefitPercentage,
+              idDocumentUrl: memberData.idDocumentUrl || null,
+            },
+            contactDetails,
+            addressDetails: {
+              streetAddress: addressData.streetAddress || '',
+              city: addressData.city || '',
+              stateProvince: addressData.stateProvince || '',
+              postalCode: addressData.postalCode || '',
+              country: addressData.country || ''
+            }
+          };
+
+          return beneficiary;
+        });
+
+        const beneficiariesData = (await Promise.all(beneficiaryPromises)).filter((b): b is BeneficiaryData => b !== null);
+        updateBeneficiaries(beneficiariesData);
+      } catch (error) {
+        console.error('Error fetching beneficiaries:', error);
+        setMessageError('Failed to fetch beneficiaries. Please refresh the page.');
+      }
+    }, (error) => {
+      console.error('Error in beneficiaries listener:', error);
+      setMessageError('Error listening to beneficiary changes. Please refresh the page.');
+    });
+
+    // Cleanup listener on unmount
+    return () => unsubscribe();
+  }, [contractNumber, updateBeneficiaries]);
+
   const handleAddBeneficiary = async () => {
     try {
       if (!contractNumber || !mainMemberIdNumber) {
-        setMessageError('Contract information is missing. Please add main member details first.')
+        setMessageError(
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>Contract information is missing. Please add main member details first.</AlertDescription>
+          </Alert>
+        )
         return
       }
 
       setIsSaving(true)
       setMessageError(null)
+      setValidationErrors(null)  // Clear previous validation errors
 
-      // Validate all required fields and data
-      const validationErrors = validateBeneficiaryData(formData, beneficiaries)
-      
-      if (validationErrors.length > 0) {
-        // Create error map for field-level validation
-        const errorMap = validationErrors.reduce((acc: { [key: string]: string }, error: string) => {
-          const [field, message] = error.split(":").map(str => str.trim())
-          const key = field.toLowerCase()
-            .replace(/\s+/g, '')
-            .replace('firstname', 'firstName')
-            .replace('lastname', 'lastName')
-            .replace('dateofbirth', 'dateOfBirth')
-            .replace('idnumber', 'idNumber')
-            .replace('idtype', 'idType')
-            .replace('relationshiptomainmember', 'relationshipToMainMember')
-            .replace('benefitpercentage', 'beneficiaryPercentage')
-            .replace('streetaddress', 'streetAddress')
-            .replace('stateprovince', 'stateProvince')
-            .replace('postalcode', 'postalCode')
-
-          acc[key] = message || field
-          return acc
-        }, {})
-
-        setValidationErrors(errorMap)
-
-        // Group errors by tab
-        const errorsByTab: ErrorsByTab = {
-          "personal-info": validationErrors.filter(error => 
-            error.toLowerCase().includes("title") || 
-            error.toLowerCase().includes("first name") || 
-            error.toLowerCase().includes("last name") ||
-            error.toLowerCase().includes("initials") || 
-            error.toLowerCase().includes("date of birth") || 
-            error.toLowerCase().includes("gender") ||
-            error.toLowerCase().includes("relationship") || 
-            error.toLowerCase().includes("nationality") || 
-            error.toLowerCase().includes("id") ||
-            error.toLowerCase().includes("percentage")
-          ),
-          "contact-details": validationErrors.filter(error => 
-            error.toLowerCase().includes("contact")
-          ),
-          "address-details": validationErrors.filter(error => 
-            error.toLowerCase().includes("address") || 
-            error.toLowerCase().includes("city") || 
-            error.toLowerCase().includes("state") || 
-            error.toLowerCase().includes("postal") ||
-            error.toLowerCase().includes("country")
-          )
-        }
-
-        // Show errors for current tab
-        const currentTabErrors = errorsByTab[activeTab as TabId]
-        if (currentTabErrors && currentTabErrors.length > 0) {
+      // Calculate total allocation including the new beneficiary
+      const totalAllocation = calculateTotalAllocation([...beneficiaries, formData]);
+      if (totalAllocation > 100) {
         setMessageError(
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Please correct the following errors:</AlertTitle>
+            <AlertTitle>Invalid Allocation</AlertTitle>
             <AlertDescription>
-                <ul className="list-disc pl-4 mt-2">
-                  {currentTabErrors.map((error: string, index: number) => (
-                    <li key={index}>{error.split(":")[1]?.trim() || error}</li>
-                  ))}
-                </ul>
+              Total allocation exceeds 100%. Please adjust the beneficiary percentages.
             </AlertDescription>
           </Alert>
-          )
+        );
+        setIsSaving(false);
+        return;
+      }
+
+      // Validate all required fields and data
+      const errors = validateBeneficiaryData(formData, beneficiaries)
+      
+      if (errors.length > 0) {
+        const fieldErrors: { [key: string]: string } = {};
+        
+        errors.forEach(error => {
+          if (error.includes("title")) fieldErrors.title = "Title is required";
+          if (error.includes("first name")) fieldErrors.firstName = "First name is required";
+          if (error.includes("last name")) fieldErrors.lastName = "Last name is required";
+          if (error.includes("initials")) fieldErrors.initials = "Initials are required";
+          if (error.includes("date of birth")) fieldErrors.dateOfBirth = "Date of birth is required";
+          if (error.includes("gender")) fieldErrors.gender = "Gender is required";
+          if (error.includes("relationship")) fieldErrors.relationshipToMainMember = "Relationship is required";
+          if (error.includes("nationality")) fieldErrors.nationality = "Nationality is required";
+          if (error.includes("ID type")) fieldErrors.idType = "ID type is required";
+          if (error.includes("ID number")) fieldErrors.idNumber = "ID number is required";
+          if (error.includes("benefit percentage")) fieldErrors.beneficiaryPercentage = "Benefit percentage is required";
+
+          // Contact Details
+          if (error.includes("contact")) {
+            if (error.includes("At least one contact method")) {
+              fieldErrors.contacts = "At least one contact method is required";
         } else {
-          // If current tab has no errors but other tabs do, show a different message
-          const incompleteTabNames = Object.entries(errorsByTab)
-            .filter(([_, errors]) => errors.length > 0)
-            .map(([tabKey, _]) => {
-              switch(tabKey) {
-                case "personal-info": return "Personal Information"
-                case "contact-details": return "Contact Details"
-                case "address-details": return "Address Details"
-                default: return ""
+              const contactIndex = error.match(/contact #(\d+)/)?.[1];
+              if (contactIndex) {
+                const index = parseInt(contactIndex) - 1;
+                if (error.includes("type")) fieldErrors[`contact${index}Type`] = "Contact type is required";
+                if (error.includes("value")) fieldErrors[`contact${index}Value`] = "Contact value is required";
+                if (error.includes("email is invalid")) fieldErrors[`contact${index}Value`] = "Valid email is required";
+                if (error.includes("phone number is invalid")) fieldErrors[`contact${index}Value`] = "Valid phone number is required";
               }
-            })
-            .filter(Boolean)
-
-          if (incompleteTabNames.length > 0) {
-            setMessageError(
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Please complete required fields in:</AlertTitle>
-                <AlertDescription>
-                  <ul className="list-disc pl-4 mt-2">
-                    {incompleteTabNames.map((tabName, index) => (
-                      <li key={index}>{tabName}</li>
-                    ))}
-                  </ul>
-                </AlertDescription>
-              </Alert>
-            )
+            }
           }
-        }
 
-        setIsSaving(false)
-        return
+          // Address Details
+          if (error.includes("street address")) fieldErrors.streetAddress = "Street address is required";
+          if (error.includes("city")) fieldErrors.city = "City is required";
+          if (error.includes("state/province")) fieldErrors.stateProvince = "State/Province is required";
+          if (error.includes("postal code")) fieldErrors.postalCode = "Postal code is required";
+          if (error.includes("country")) fieldErrors.country = "Country is required";
+        });
+
+        setValidationErrors(fieldErrors);
+        setIsSaving(false);
+        return;
       }
 
       // Check for duplicates
@@ -461,13 +539,62 @@ export function BeneficiaryDetails({
         return
       }
 
-      // Save beneficiary to Firestore
-      const beneficiaryId = await saveBeneficiaryToFirestore(formData, contractNumber, mainMemberIdNumber)
+      // First check if member exists using ID Type and ID Number
+      const membersRef = collection(db, 'Members');
+      const memberQuery = query(
+        membersRef,
+        where('idNumber', '==', formData.personalInfo.idNumber),
+        where('idType', '==', formData.personalInfo.idType)
+      );
+      const memberSnapshot = await getDocs(memberQuery);
+
+      let memberId: string;
+
+      if (!memberSnapshot.empty) {
+        // Member exists - check for existing relationship
+        memberId = memberSnapshot.docs[0].id;
+
+        // Check if relationship already exists
+        const relationshipsRef = collection(db, 'member_contract_relationships');
+        const relationshipQuery = query(
+          relationshipsRef,
+          where('member_id', '==', memberId),
+          where('contract_number', '==', contractNumber),
+          where('role', '==', 'Beneficiary')
+        );
+        const relationshipSnapshot = await getDocs(relationshipQuery);
+
+        if (!relationshipSnapshot.empty) {
+          setMessageError(
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Relationship Already Exists</AlertTitle>
+              <AlertDescription>
+                This person is already a beneficiary on this contract.
+              </AlertDescription>
+            </Alert>
+          );
+          setIsSaving(false);
+          return;
+        }
+
+        // Create only the relationship
+        await createMemberRelationship({
+          memberId,
+          contractNumber,
+          role: 'Beneficiary',
+          relationshipType: formData.personalInfo.relationshipToMainMember,
+          benefitPercentage: formData.personalInfo.beneficiaryPercentage
+        });
+      } else {
+        // This is a new member - save all details
+        memberId = await saveBeneficiaryToFirestore(formData, contractNumber, mainMemberIdNumber);
+      }
       
       // Update local state with the new beneficiary
       const newBeneficiary = {
         ...formData,
-        id: beneficiaryId
+        id: memberId
       }
       updateBeneficiaries([...beneficiaries, newBeneficiary])
       
@@ -487,147 +614,231 @@ export function BeneficiaryDetails({
   const handleEditBeneficiary = async () => {
     try {
       if (!contractNumber || !mainMemberIdNumber) {
-        setMessageError('Contract information is missing')
-        return
+        setMessageError(
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>Contract information is missing</AlertDescription>
+          </Alert>
+        );
+        return;
       }
 
-      setIsSaving(true)
-      setValidationErrors(null)
-      setMessageError(null)
+      setIsSaving(true);
+      setValidationErrors(null);
+      setMessageError(null);
 
-      if (editingIndex !== null) {
-        // Calculate total percentage excluding the current beneficiary
-        const otherBeneficiaries = beneficiaries.filter((_, index) => index !== editingIndex)
+      if (editingIndex !== null && editingBeneficiary?.id) {
+        // Calculate total allocation excluding the current beneficiary and including the updated one
+        const otherBeneficiaries = beneficiaries.filter((_, index) => index !== editingIndex);
+        const totalAllocation = calculateTotalAllocation([...otherBeneficiaries, formData]);
         
-        // Validate all required fields and data
-        const validationErrors = validateBeneficiaryData(formData, otherBeneficiaries)
-        
-        if (validationErrors.length > 0) {
-          // Group errors by tab
-          const errorsByTab: ErrorsByTab = {
-            "personal-info": validationErrors.filter(error => 
-              error.toLowerCase().includes("title") || 
-              error.toLowerCase().includes("first name") || 
-              error.toLowerCase().includes("last name") ||
-              error.toLowerCase().includes("initials") || 
-              error.toLowerCase().includes("date of birth") || 
-              error.toLowerCase().includes("gender") ||
-              error.toLowerCase().includes("relationship") || 
-              error.toLowerCase().includes("nationality") || 
-              error.toLowerCase().includes("id") ||
-              error.toLowerCase().includes("percentage")
-            ),
-            "contact-details": validationErrors.filter(error => 
-              error.toLowerCase().includes("contact")
-            ),
-            "address-details": validationErrors.filter(error => 
-              error.toLowerCase().includes("address") || 
-              error.toLowerCase().includes("city") || 
-              error.toLowerCase().includes("state") || 
-              error.toLowerCase().includes("postal") ||
-              error.toLowerCase().includes("country")
-            )
-          }
-
-          // Create error map for field-level validation
-          const errorMap = validationErrors.reduce((acc: { [key: string]: string }, error: string) => {
-            const [field, message] = error.split(":").map(str => str.trim())
-            const key = field.toLowerCase()
-              .replace(/\s+/g, '')
-              .replace('firstname', 'firstName')
-              .replace('lastname', 'lastName')
-              .replace('dateofbirth', 'dateOfBirth')
-              .replace('idnumber', 'idNumber')
-              .replace('idtype', 'idType')
-              .replace('relationshiptomainmember', 'relationshipToMainMember')
-              .replace('benefitpercentage', 'beneficiaryPercentage')
-              .replace('streetaddress', 'streetAddress')
-              .replace('stateprovince', 'stateProvince')
-              .replace('postalcode', 'postalCode')
-
-            acc[key] = message || field
-            return acc
-          }, {})
-
-          setValidationErrors(errorMap)
-
-          // Check if there are any errors in the current tab
-          const currentTabErrors = errorsByTab[activeTab as TabId]
-          if (currentTabErrors && currentTabErrors.length > 0) {
+        if (totalAllocation > 100) {
           setMessageError(
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Please correct the following errors:</AlertTitle>
+              <AlertTitle>Invalid Allocation</AlertTitle>
               <AlertDescription>
-                  <ul className="list-disc pl-4 mt-2">
-                    {currentTabErrors.map((error: string, index: number) => (
-                      <li key={index}>{error.split(":")[1]?.trim() || error}</li>
-                    ))}
-                  </ul>
+                Total allocation exceeds 100%. Please adjust the beneficiary percentages.
               </AlertDescription>
             </Alert>
-            )
-          } else {
-            // If current tab has no errors but other tabs do, show a different message
-            const incompleteTabNames = Object.entries(errorsByTab)
-              .filter(([_, errors]) => errors.length > 0)
-              .map(([tabKey, _]) => {
-                switch(tabKey) {
-                  case "personal-info": return "Personal Information"
-                  case "contact-details": return "Contact Details"
-                  case "address-details": return "Address Details"
-                  default: return ""
-                }
-              })
-              .filter(Boolean)
+          );
+          setIsSaving(false);
+          return;
+        }
 
-            if (incompleteTabNames.length > 0) {
-              setMessageError(
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>Please complete required fields in:</AlertTitle>
-                  <AlertDescription>
-                    <ul className="list-disc pl-4 mt-2">
-                      {incompleteTabNames.map((tabName, index) => (
-                        <li key={index}>{tabName}</li>
-                      ))}
-                    </ul>
-                  </AlertDescription>
-                </Alert>
-              )
+        // Validate all required fields and data
+        const errors = validateBeneficiaryData(formData, beneficiaries);
+        if (errors.length > 0) {
+          const fieldErrors: { [key: string]: string } = {};
+          errors.forEach(error => {
+            if (error.includes("title")) fieldErrors.title = "Title is required";
+            if (error.includes("first name")) fieldErrors.firstName = "First name is required";
+            if (error.includes("last name")) fieldErrors.lastName = "Last name is required";
+            if (error.includes("initials")) fieldErrors.initials = "Initials are required";
+            if (error.includes("date of birth")) fieldErrors.dateOfBirth = "Date of birth is required";
+            if (error.includes("gender")) fieldErrors.gender = "Gender is required";
+            if (error.includes("relationship")) fieldErrors.relationshipToMainMember = "Relationship is required";
+            if (error.includes("nationality")) fieldErrors.nationality = "Nationality is required";
+            if (error.includes("ID type")) fieldErrors.idType = "ID type is required";
+            if (error.includes("ID number")) fieldErrors.idNumber = "ID number is required";
+            if (error.includes("benefit percentage")) fieldErrors.beneficiaryPercentage = "Benefit percentage is required";
+
+            // Contact Details
+            if (error.includes("contact")) {
+              if (error.includes("At least one contact method")) {
+                fieldErrors.contacts = "At least one contact method is required";
+              } else {
+                const contactIndex = error.match(/contact #(\d+)/)?.[1];
+                if (contactIndex) {
+                  const index = parseInt(contactIndex) - 1;
+                  if (error.includes("type")) fieldErrors[`contact${index}Type`] = "Contact type is required";
+                  if (error.includes("value")) fieldErrors[`contact${index}Value`] = "Contact value is required";
+                  if (error.includes("email is invalid")) fieldErrors[`contact${index}Value`] = "Valid email is required";
+                  if (error.includes("phone number is invalid")) fieldErrors[`contact${index}Value`] = "Valid phone number is required";
+                }
+              }
+            }
+
+            // Address Details
+            if (error.includes("street address")) fieldErrors.streetAddress = "Street address is required";
+            if (error.includes("city")) fieldErrors.city = "City is required";
+            if (error.includes("state/province")) fieldErrors.stateProvince = "State/Province is required";
+            if (error.includes("postal code")) fieldErrors.postalCode = "Postal code is required";
+            if (error.includes("country")) fieldErrors.country = "Country is required";
+          });
+
+          setValidationErrors(fieldErrors);
+          setIsSaving(false);
+          return;
+        }
+
+        try {
+          // Update member details in Firestore
+          const memberRef = doc(db, 'Members', editingBeneficiary.id);
+          await updateDoc(memberRef, {
+            title: formData.personalInfo.title,
+            firstName: formData.personalInfo.firstName,
+            lastName: formData.personalInfo.lastName,
+            initials: formData.personalInfo.initials,
+            dateOfBirth: formData.personalInfo.dateOfBirth,
+            gender: formData.personalInfo.gender,
+            nationality: formData.personalInfo.nationality,
+            idType: formData.personalInfo.idType,
+            idNumber: formData.personalInfo.idNumber,
+            idDocumentUrl: formData.personalInfo.idDocumentUrl,
+              updatedAt: new Date()
+            });
+
+          // Get member_contract_relationships document
+          const relationshipsRef = collection(db, 'member_contract_relationships');
+          const relationshipQuery = query(
+            relationshipsRef,
+            where('member_id', '==', editingBeneficiary.id),
+            where('contract_number', '==', contractNumber),
+            where('role', '==', 'Beneficiary')
+          );
+          const relationshipSnapshot = await getDocs(relationshipQuery);
+
+          if (!relationshipSnapshot.empty) {
+            const relationshipDoc = relationshipSnapshot.docs[0];
+            const relationshipId = relationshipDoc.id;
+
+            // Update relationship in Relationship collection
+            const relationshipCollectionQuery = query(
+              collection(db, 'Relationship'),
+            where('member_contract_relationship_id', '==', relationshipId)
+          );
+            const relationshipCollectionSnapshot = await getDocs(relationshipCollectionQuery);
+
+            if (!relationshipCollectionSnapshot.empty) {
+              const relationshipCollectionDoc = relationshipCollectionSnapshot.docs[0];
+              await updateDoc(relationshipCollectionDoc.ref, {
+              relationshipType: formData.personalInfo.relationshipToMainMember,
+              updatedAt: new Date()
+            });
+          }
+
+            // Update benefit in Benefit collection
+          const benefitQuery = query(
+              collection(db, 'Benefit'),
+            where('member_contract_relationship_id', '==', relationshipId)
+          );
+          const benefitSnapshot = await getDocs(benefitQuery);
+
+            if (!benefitSnapshot.empty) {
+              const benefitDoc = benefitSnapshot.docs[0];
+              await updateDoc(benefitDoc.ref, {
+              percentage: formData.personalInfo.beneficiaryPercentage,
+              updatedAt: new Date()
+              });
             }
           }
 
-          setIsSaving(false)
-          return
-        }
+          // Update contacts
+          const contactsRef = collection(db, 'Contacts');
+          const contactsQuery = query(contactsRef, where('memberId', '==', editingBeneficiary.id));
+          const contactsSnapshot = await getDocs(contactsQuery);
 
-        // Update beneficiary in Firestore
-        const beneficiaryId = await saveBeneficiaryToFirestore(formData, contractNumber, mainMemberIdNumber)
+          // Delete existing contacts
+          for (const doc of contactsSnapshot.docs) {
+            await deleteDoc(doc.ref);
+          }
+
+          // Add new contacts
+          for (const contact of formData.contactDetails) {
+            await addDoc(contactsRef, {
+              memberId: editingBeneficiary.id,
+              type: contact.type,
+              value: contact.value,
+              createdAt: new Date()
+            });
+          }
+
+          // Update address
+          const addressRef = collection(db, 'Address');
+          const addressQuery = query(addressRef, where('memberId', '==', editingBeneficiary.id));
+          const addressSnapshot = await getDocs(addressQuery);
+
+          if (addressSnapshot.empty) {
+            // Create new address
+            await addDoc(addressRef, {
+              memberId: editingBeneficiary.id,
+              ...formData.addressDetails,
+              createdAt: new Date()
+            });
+          } else {
+            // Update existing address
+            await updateDoc(addressSnapshot.docs[0].ref, {
+              ...formData.addressDetails,
+              updatedAt: new Date()
+            });
+          }
         
         // Update local state
-        const updatedBeneficiaries = [...beneficiaries]
+          const updatedBeneficiaries = [...beneficiaries];
         updatedBeneficiaries[editingIndex] = {
           ...formData,
-          id: beneficiaryId
-        }
-    updateBeneficiaries(updatedBeneficiaries)
+            id: editingBeneficiary.id
+          };
+          updateBeneficiaries(updatedBeneficiaries);
         
         // Reset form and close dialog
-        setIsDialogOpen(false)
-        setEditingBeneficiary(null)
-        setEditingIndex(null)
-        setFormData(emptyBeneficiary)
-        setValidationErrors(null)
-        setMessageError(null)
+          setIsDialogOpen(false);
+          setEditingBeneficiary(null);
+          setEditingIndex(null);
+          setFormData(emptyBeneficiary);
+          setValidationErrors(null);
+          setMessageError(null);
+
+          toast({
+            title: "Success",
+            description: "Beneficiary details updated successfully",
+            variant: "default",
+          });
+        } catch (error) {
+          console.error('Error updating beneficiary:', error);
+          setMessageError(
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>Failed to update beneficiary. Please try again.</AlertDescription>
+            </Alert>
+          );
+        }
       }
     } catch (error) {
-      console.error('Error updating beneficiary:', error)
-      setMessageError('Failed to update beneficiary. Please try again.')
+      console.error('Error updating beneficiary:', error);
+      setMessageError(
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>Failed to update beneficiary. Please try again.</AlertDescription>
+        </Alert>
+      );
     } finally {
-      setIsSaving(false)
+      setIsSaving(false);
     }
-  }
+  };
 
   const handleCancel = () => {
     setIsDialogOpen(false)
@@ -637,68 +848,184 @@ export function BeneficiaryDetails({
   }
 
   const handleRemoveBeneficiary = async (index: number) => {
-    if (!isSaving) {
-      try {
-        setIsSaving(true)
-        const beneficiaryToRemove = beneficiaries[index]
-        
-        if (!beneficiaryToRemove.id || !contractNumber) {
-          throw new Error('Missing beneficiary ID or contract number')
-        }
+    try {
+      const beneficiary = beneficiaries[index];
+      if (!beneficiary || !beneficiary.id || !contractNumber) {
+        throw new Error('Invalid beneficiary data or contract number');
+      }
 
-        // Show loading state in UI
-    const updatedBeneficiaries = [...beneficiaries]
-        updatedBeneficiaries[index] = {
-          ...beneficiaryToRemove,
-          isDeleting: true
-        }
-    updateBeneficiaries(updatedBeneficiaries)
+      setDeletingIndex(index);
+      setIsDeleteDialogOpen(true);
+    } catch (error) {
+      console.error('Error preparing beneficiary removal:', error);
+      toast({
+        title: "Error",
+        description: "Failed to prepare beneficiary removal. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
-        // Remove from Firestore
-        await removeBeneficiaryFromFirestore(beneficiaryToRemove.id, contractNumber)
-        
-        // Update local state only after successful Firestore deletion
-        updateBeneficiaries(beneficiaries.filter((_, i) => i !== index))
-        setValidationErrors(null)
-        setIsDeleteDialogOpen(false)
-        setDeletingIndex(null)
+  const handleConfirmDelete = async () => {
+    try {
+      if (deletingIndex === null) return;
+
+      const beneficiary = beneficiaries[deletingIndex];
+      if (!beneficiary || !beneficiary.id || !contractNumber) {
+        throw new Error('Invalid beneficiary data or contract number');
+      }
+
+      setIsSaving(true);
+
+      await removeBeneficiaryFromFirestore(beneficiary.id, contractNumber);
+
+      // Update local state
+      const updatedBeneficiaries = beneficiaries.filter((_, i) => i !== deletingIndex);
+      updateBeneficiaries(updatedBeneficiaries);
+
+      setIsDeleteDialogOpen(false);
+      setDeletingIndex(null);
+      
+      toast({
+        title: "Success",
+        description: "Beneficiary removed successfully",
+      });
       } catch (error) {
-        console.error('Error removing beneficiary:', error)
-        setMessageError(error instanceof Error ? error.message : 'Failed to remove beneficiary. Please try again.')
+      console.error('Error removing beneficiary:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to remove beneficiary",
+        variant: "destructive",
+      });
       } finally {
-        setIsSaving(false)
+      setIsSaving(false);
+      }
+  };
+
+  const checkAndPopulateBeneficiary = async (idValue: string, idType: "South African ID" | "Passport") => {
+    console.log("Starting beneficiary check for:", idValue, idType);
+    try {
+      const membersRef = collection(db, 'Members');
+      const q = query(
+        membersRef,
+        where('idNumber', '==', idValue),
+        where('idType', '==', idType)
+      );
+      const memberSnapshot = await getDocs(q);
+      
+      if (!memberSnapshot.empty) {
+        const memberDoc = memberSnapshot.docs[0];
+        const memberData = memberDoc.data();
+
+        // Auto-populate personal info fields
+        const populatedInfo = {
+          ...formData.personalInfo,
+          title: memberData.title || '',
+          firstName: memberData.firstName || '',
+          lastName: memberData.lastName || '',
+          initials: memberData.initials || '',
+          dateOfBirth: memberData.dateOfBirth ? new Date(memberData.dateOfBirth.seconds * 1000) : null,
+          gender: memberData.gender || '',
+          nationality: memberData.nationality || '',
+          idDocumentUrl: memberData.idDocumentUrl || null,
+          idNumber: idValue,
+          idType: idType,
+          beneficiaryPercentage: 0
+        };
+
+        // Fetch contact details
+        const contactsRef = collection(db, 'Contacts');
+        const contactsQuery = query(contactsRef, where('memberId', '==', memberDoc.id));
+        const contactsSnapshot = await getDocs(contactsQuery);
+        const newContactDetails = contactsSnapshot.docs.map(doc => ({
+          type: doc.data().type as "Email" | "Phone Number",
+          value: doc.data().value
+        }));
+
+        // Fetch address details
+        const addressRef = collection(db, 'Address');
+        const addressQuery = query(addressRef, where('memberId', '==', memberDoc.id));
+        const addressSnapshot = await getDocs(addressQuery);
+        let newAddressDetails = {
+          streetAddress: '',
+          city: '',
+          stateProvince: '',
+          postalCode: '',
+          country: ''
+        };
+        
+        if (!addressSnapshot.empty) {
+          const addressData = addressSnapshot.docs[0].data();
+          newAddressDetails = {
+            streetAddress: addressData.streetAddress || '',
+            city: addressData.city || '',
+            stateProvince: addressData.stateProvince || '',
+            postalCode: addressData.postalCode || '',
+            country: addressData.country || ''
+          };
+        }
+
+        // Update form data
+        const updatedData = {
+          ...formData,
+          id: memberDoc.id,
+          personalInfo: populatedInfo,
+          contactDetails: newContactDetails,
+          addressDetails: newAddressDetails
+        };
+        
+        setFormData(updatedData);
+
+        toast({
+          title: "Existing Member Found",
+          description: `Member details for ${memberData.firstName} ${memberData.lastName} have been auto-populated.`,
+          variant: "default",
+        });
+      }
+    } catch (error) {
+      console.error('Error checking member:', error);
+      setMessageError('Error checking member details. Please try again.');
+    }
+  };
+
+  const handlePersonalInfoChange = (field: string, value: string | Date | null) => {
+    setMessageError(null);
+    const updatedInfo = { ...formData.personalInfo, [field]: value };
+
+    if (field === "idNumber" && typeof value === "string") {
+      if (mainMemberIdNumber && value === mainMemberIdNumber) {
+        setMessageError('Beneficiary cannot have the same ID number as the main member');
+        return;
+      }
+
+      if (updatedInfo.idType === "South African ID" && value.length === 13) {
+        const validationResult = validateSouthAfricanID(value);
+        if (!validationResult.isValid) {
+          setMessageError(validationResult.errors[0]);
+        } else {
+          if (validationResult.dateOfBirth) {
+            updatedInfo.dateOfBirth = validationResult.dateOfBirth;
+          }
+          if (validationResult.gender) {
+            updatedInfo.gender = validationResult.gender;
+          }
+          checkAndPopulateBeneficiary(value, "South African ID");
+        }
+      } else if (updatedInfo.idType === "Passport" && value.length > 0) {
+        checkAndPopulateBeneficiary(value, "Passport");
       }
     }
-  }
 
-  // Add function to check for duplicate beneficiaries
-  const checkDuplicateBeneficiary = async (idNumber: string): Promise<boolean> => {
-    setDuplicateCheck(prev => ({ ...prev, checking: true }));
-    try {
-      const beneficiariesQuery = query(
-        collection(db, 'Beneficiaries'),
-        where('idNumber', '==', idNumber),
-        where('status', '==', 'Active')
-      );
-      const snapshot = await getDocs(beneficiariesQuery);
-      const isDuplicate = !snapshot.empty;
-      
-      setDuplicateCheck({
-        checking: false,
-        isDuplicate,
-        message: isDuplicate ? 'This person is already registered as a beneficiary' : null
-      });
-      
-      return isDuplicate;
-    } catch (error) {
-      console.error('Error checking duplicate:', error);
-      setDuplicateCheck({
-        checking: false,
-        isDuplicate: false,
-        message: 'Error checking duplicate status'
-      });
-      return false;
+    if (field === "idType") {
+      updatedInfo.idNumber = '';
+      updatedInfo.dateOfBirth = null;
+      updatedInfo.gender = '';
     }
+
+    setFormData(prev => ({
+      ...prev,
+      personalInfo: updatedInfo
+    }));
   };
 
   return (
@@ -766,13 +1093,14 @@ export function BeneficiaryDetails({
                   setMessageError(null);
                 }
               }}
+              error={validationErrors}
               mainMemberIdNumber={mainMemberIdNumber}
-              errors={validationErrors}
+              validationErrors={validationErrors}
               onTabChange={(tab: TabId) => {
                 setActiveTab(tab);
-                // Clear message error when changing tabs
                 setMessageError(null);
               }}
+              isEditing={!!editingBeneficiary}
             />
             <div className="flex justify-end space-x-2 mt-4">
               <Button 
@@ -790,7 +1118,7 @@ export function BeneficiaryDetails({
                 onClick={editingBeneficiary ? handleEditBeneficiary : handleAddBeneficiary}
                 disabled={isSaving}
               >
-                {isSaving ? 'Saving...' : 'Save'}
+                {isSaving ? 'Saving...' : editingBeneficiary ? 'Update' : 'Save'}
               </Button>
             </div>
           </DialogContent>
@@ -799,16 +1127,18 @@ export function BeneficiaryDetails({
 
       <div className="space-y-4">
         <div className="flex justify-between items-center">
-          <h3 className="text-lg font-semibold">Beneficiaries</h3>
+            <p className="text-sm text-gray-500">
+              Add or manage beneficiaries for this contract
+            </p>
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-500">
-              Total Allocation: {beneficiaries.reduce((sum, ben) => 
-                sum + ben.personalInfo.beneficiaryPercentage, 0
-              )}%
+              Total Allocation: {Math.round(beneficiaries.reduce((sum, ben) => 
+                sum + Number(ben.personalInfo.beneficiaryPercentage), 0
+              ))}%
             </span>
-            {beneficiaries.reduce((sum, ben) => 
-              sum + ben.personalInfo.beneficiaryPercentage, 0
-            ) === 100 ? (
+            {Math.round(beneficiaries.reduce((sum, ben) => 
+              sum + Number(ben.personalInfo.beneficiaryPercentage), 0
+            )) === 100 ? (
               <Badge variant="outline" className="gap-1 bg-green-50 text-green-700 border-green-200">
                 <Percent className="w-3 h-3" />
                 Complete
@@ -933,12 +1263,16 @@ export function BeneficiaryDetails({
                 <p className="text-gray-600">Are you sure you want to remove this beneficiary? This action cannot be undone.</p>
                 {deletingIndex !== null && (
                   <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
+                    {deletingIndex !== null && beneficiaries[deletingIndex] && (
+                      <>
                     <p className="font-medium">
                       {beneficiaries[deletingIndex].personalInfo.title} {beneficiaries[deletingIndex].personalInfo.firstName} {beneficiaries[deletingIndex].personalInfo.lastName}
                     </p>
                     <p className="text-sm text-gray-500 mt-1">
                       {beneficiaries[deletingIndex].personalInfo.relationshipToMainMember} • {beneficiaries[deletingIndex].personalInfo.beneficiaryPercentage}%
                     </p>
+                      </>
+                    )}
                   </div>
                 )}
               </>
@@ -961,7 +1295,7 @@ export function BeneficiaryDetails({
             {!messageError && (
               <Button
                 variant="destructive"
-                onClick={() => deletingIndex !== null && handleRemoveBeneficiary(deletingIndex)}
+                onClick={handleConfirmDelete}
                 disabled={isSaving}
               >
                 {isSaving ? 'Removing...' : 'Remove Beneficiary'}

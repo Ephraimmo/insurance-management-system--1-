@@ -7,8 +7,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Loader2, Plus, Search, Pencil, Trash2, X, AlertCircle, Upload, Image, FileImage, Download, Eye } from "lucide-react"
 import { collection, getDocs, query, orderBy, doc, setDoc, deleteDoc, where, limit, getDoc } from "firebase/firestore"
-import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage"
-import { db, storage } from "@/src/FirebaseConfg"
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage"
+import { db } from "@/src/FirebaseConfg"
 import { toast } from "@/components/ui/use-toast"
 import { format } from "date-fns"
 import { Label } from "@/components/ui/label"
@@ -33,6 +33,8 @@ type SearchParams = {
   date: string
   status: string
 }
+
+const storage = getStorage()
 
 export function Payment() {
   const [payments, setPayments] = useState<Payment[]>([])

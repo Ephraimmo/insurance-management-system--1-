@@ -14,6 +14,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { AlertCircle } from "lucide-react"
 import { collection, query, where, getDocs } from "firebase/firestore"
 import { db } from "@/src/FirebaseConfg"
+import { toast } from "@/components/ui/use-toast"
+import { isValid } from "date-fns"
 
 
 type MainMemberData = {
@@ -48,15 +50,18 @@ interface MainMemberFormProps {
   data: MainMemberData
   updateData: (data: MainMemberData) => void
   errors?: { [key: string]: string } | null
+  isDisabled?: boolean
 }
 
-export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps) {
+export function MainMemberForm({ data, updateData, errors, isDisabled = false }: MainMemberFormProps) {
   const [personalInfo, setPersonalInfo] = useState(data.personalInfo)
   const [contactDetails, setContactDetails] = useState(data.contactDetails)
   const [addressDetails, setAddressDetails] = useState(data.addressDetails)
   const [activeTab, setActiveTab] = useState("personal-info")
   const [fileUploadStatus, setFileUploadStatus] = useState<"idle" | "uploading" | "success" | "error">("idle")
   const [idValidationErrors, setIdValidationErrors] = useState<string[]>([])
+  const [wasAutoPopulated, setWasAutoPopulated] = useState(false)
+  const [passportCheckTimeout, setPassportCheckTimeout] = useState<NodeJS.Timeout | null>(null)
 
   // Update local state when parent data changes
   useEffect(() => {
@@ -68,57 +73,385 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
   const handlePersonalInfoChange = async (field: string, value: string | Date | null) => {
     const updatedPersonalInfo = { ...personalInfo, [field]: value }
     
-    // Validate ID number in real-time
-    if (field === "idNumber" && typeof value === "string" && updatedPersonalInfo.idType === "South African ID") {
-      const validationResult = validateSouthAfricanID(value);
-      setIdValidationErrors(validationResult.errors);
+    // Handle ID number validation and auto-completion
+    if (field === "idNumber") {
+      // For South African ID, only allow numbers and limit to 13 digits
+      if (personalInfo.idType === "South African ID") {
+        const numericValue = value?.toString().replace(/\D/g, '').slice(0, 13) || ''
+        updatedPersonalInfo.idNumber = numericValue
 
-      if (validationResult.isValid) {
-        // Check for existing contract with this ID
-        try {
-          const contractsQuery = query(
-            collection(db, 'Contracts'),
-            where('memberIdNumber', '==', value)
-          );
-          const contractSnapshot = await getDocs(contractsQuery);
-          
-          if (!contractSnapshot.empty) {
-            const existingContract = contractSnapshot.docs[0].data();
-            setIdValidationErrors([`A contract already exists with this ID number (Contract Number: ${existingContract.contractNumber})`]);
-            return;
+        // Auto-complete gender and date of birth if ID number is complete
+        if (numericValue.length === 13) {
+          try {
+            // Extract date of birth
+            const year = parseInt(numericValue.substring(0, 2))
+            const month = parseInt(numericValue.substring(2, 4))
+            const day = parseInt(numericValue.substring(4, 6))
+            
+            // Determine century (1900s or 2000s)
+            const currentYear = new Date().getFullYear() % 100
+            const century = year <= currentYear ? 2000 : 1900
+            const fullYear = century + year
+
+            // Create date object with proper validation
+            const dob = new Date(fullYear, month - 1, day)
+            
+            // Validate the date before setting
+            if (isValid(dob) && dob.getMonth() === month - 1 && dob.getDate() === day) {
+              // Set to start of day to avoid timezone issues
+              dob.setHours(0, 0, 0, 0)
+              updatedPersonalInfo.dateOfBirth = dob
+            } else {
+              console.error('Invalid date extracted from ID number')
+              updatedPersonalInfo.dateOfBirth = null
+            }
+
+            // Extract gender (digit 7-10 range: 0000-4999 for female, 5000-9999 for male)
+            const genderDigits = parseInt(numericValue.substring(6, 10))
+            const gender = genderDigits < 5000 ? "Female" : "Male"
+
+            // Update the form with extracted information
+            updatedPersonalInfo.gender = gender
+
+            // Show toast notification about auto-completion
+            toast({
+              title: "Auto-completed",
+              description: "Date of Birth and Gender have been automatically filled based on the ID number.",
+              variant: "default",
+            })
+          } catch (error) {
+            console.error('Error auto-completing from ID:', error)
           }
-        } catch (error) {
-          console.error('Error checking for existing contract:', error);
-          setIdValidationErrors(['Error checking for existing contract. Please try again.']);
-          return;
-        }
-
-        // Auto-fill date of birth and gender if valid
-        if (validationResult.dateOfBirth) {
-          updatedPersonalInfo.dateOfBirth = validationResult.dateOfBirth;
-        }
-        if (validationResult.gender) {
-          updatedPersonalInfo.gender = validationResult.gender;
         }
       } else {
-        // Even if not fully valid, still try to auto-fill what we can
-        if (validationResult.dateOfBirth) {
-          updatedPersonalInfo.dateOfBirth = validationResult.dateOfBirth;
+        // For passport, allow alphanumeric and limit to 20 characters
+        const passportValue = value?.toString().slice(0, 20) || ''
+        updatedPersonalInfo.idNumber = passportValue
+
+        // Clear any existing timeout
+        if (passportCheckTimeout) {
+          clearTimeout(passportCheckTimeout)
         }
-        if (validationResult.gender) {
-          updatedPersonalInfo.gender = validationResult.gender;
-        }
+
+        // Update the form immediately with the new value
+        setPersonalInfo(updatedPersonalInfo)
+        updateData({
+          personalInfo: updatedPersonalInfo,
+          contactDetails,
+          addressDetails
+        })
+
+        // Set a new timeout for passport check
+        const timeout = setTimeout(async () => {
+          try {
+            // Only check if we have a passport value
+            if (passportValue) {
+              const membersRef = collection(db, 'Members')
+              const q = query(
+                membersRef,
+                where('idNumber', '==', passportValue),
+                where('idType', '==', 'Passport')
+              )
+              const memberSnapshot = await getDocs(q)
+
+              if (!memberSnapshot.empty) {
+                const memberDoc = memberSnapshot.docs[0]
+                const memberData = memberDoc.data()
+
+                // Auto-populate fields
+                const populatedPersonalInfo = {
+                  ...updatedPersonalInfo,
+                  title: memberData.title || '',
+                  firstName: memberData.firstName || '',
+                  lastName: memberData.lastName || '',
+                  initials: memberData.initials || '',
+                  dateOfBirth: memberData.dateOfBirth ? new Date(memberData.dateOfBirth.seconds * 1000) : null,
+                  gender: memberData.gender || '',
+                  language: memberData.language || '',
+                  maritalStatus: memberData.maritalStatus || '',
+                  nationality: memberData.nationality || '',
+                  idDocumentUrl: memberData.idDocumentUrl || null,
+                }
+
+                // Fetch contact details
+                const contactsRef = collection(db, 'Contacts')
+                const contactsQuery = query(contactsRef, where('memberId', '==', memberDoc.id))
+                const contactsSnapshot = await getDocs(contactsQuery)
+                const newContactDetails = contactsSnapshot.docs.map(doc => ({
+                  type: doc.data().type as "Email" | "Phone Number",
+                  value: doc.data().value
+                }))
+
+                // Fetch address details
+                const addressRef = collection(db, 'Address')
+                const addressQuery = query(addressRef, where('memberId', '==', memberDoc.id))
+                const addressSnapshot = await getDocs(addressQuery)
+                let newAddressDetails = {
+                  streetAddress: '',
+                  city: '',
+                  stateProvince: '',
+                  postalCode: '',
+                  country: ''
+                }
+                
+                if (!addressSnapshot.empty) {
+                  const addressData = addressSnapshot.docs[0].data()
+                  newAddressDetails = {
+                    streetAddress: addressData.streetAddress || '',
+                    city: addressData.city || '',
+                    stateProvince: addressData.stateProvince || '',
+                    postalCode: addressData.postalCode || '',
+                    country: addressData.country || ''
+                  }
+                }
+
+                // Update all form sections
+                setPersonalInfo(populatedPersonalInfo)
+                setContactDetails(newContactDetails)
+                setAddressDetails(newAddressDetails)
+                setWasAutoPopulated(true)
+
+                // Update parent component
+                updateData({
+                  personalInfo: populatedPersonalInfo,
+                  contactDetails: newContactDetails,
+                  addressDetails: newAddressDetails
+                })
+
+                toast({
+                  title: "Existing Member Found",
+                  description: `Member details for ${memberData.firstName} ${memberData.lastName} have been auto-populated.`,
+                  variant: "default",
+                })
+              }
+            }
+          } catch (error) {
+            console.error('Error checking member:', error)
+            setIdValidationErrors(['Error checking member details. Please try again.'])
+          }
+        }, 1000) // Wait for 1 second after typing stops
+
+        setPassportCheckTimeout(timeout)
+        return
       }
     }
 
-    // Clear validation errors when switching ID type
+    // Clear form when typing new ID number if data was auto-populated
+    if (field === "idNumber" && wasAutoPopulated) {
+      const clearedPersonalInfo = {
+        ...personalInfo,
+        title: '',
+        firstName: '',
+        lastName: '',
+        initials: '',
+        dateOfBirth: updatedPersonalInfo.dateOfBirth, // Preserve auto-completed date
+        gender: updatedPersonalInfo.gender, // Preserve auto-completed gender
+        language: '',
+        maritalStatus: '',
+        nationality: '',
+        idDocumentUrl: null,
+        idNumber: updatedPersonalInfo.idNumber
+      }
+      setWasAutoPopulated(false)
+      setIdValidationErrors([])
+      setPersonalInfo(clearedPersonalInfo)
+      setContactDetails([])
+      setAddressDetails({
+        streetAddress: '',
+        city: '',
+        stateProvince: '',
+        postalCode: '',
+        country: ''
+      })
+      updateData({
+        personalInfo: clearedPersonalInfo,
+        contactDetails: [],
+        addressDetails: {
+          streetAddress: '',
+          city: '',
+          stateProvince: '',
+          postalCode: '',
+          country: ''
+        }
+      })
+      return
+    }
+    
+    // Clear form and validation when ID type changes
     if (field === "idType") {
-      setIdValidationErrors([]);
+      const clearedPersonalInfo = {
+        ...personalInfo,
+        idType: value as "South African ID" | "Passport",
+        idNumber: '',
+        title: '',
+        firstName: '',
+        lastName: '',
+        initials: '',
+        dateOfBirth: null,
+        gender: '',
+        language: '',
+        maritalStatus: '',
+        nationality: '',
+        idDocumentUrl: null,
+      }
+      setIdValidationErrors([])
+      setPersonalInfo(clearedPersonalInfo)
+      setContactDetails([])
+      setAddressDetails({
+        streetAddress: '',
+        city: '',
+        stateProvince: '',
+        postalCode: '',
+        country: ''
+      })
+      updateData({
+        personalInfo: clearedPersonalInfo,
+        contactDetails: [],
+        addressDetails: {
+          streetAddress: '',
+          city: '',
+          stateProvince: '',
+          postalCode: '',
+          country: ''
+        }
+      })
+      return
+    }
+    
+    // Only perform member check if we have a complete ID number
+    if (field === "idNumber" && updatedPersonalInfo.idNumber) {
+      // For South African ID, validate the number first
+      if (personalInfo.idType === "South African ID") {
+        if (updatedPersonalInfo.idNumber.length !== 13) {
+          setPersonalInfo(updatedPersonalInfo)
+          updateData({
+            personalInfo: updatedPersonalInfo,
+            contactDetails,
+            addressDetails
+          })
+          return
+        }
+        
+        setIdValidationErrors([])
+          const validationResult = validateSouthAfricanID(updatedPersonalInfo.idNumber)
+          if (!validationResult.isValid) {
+            setIdValidationErrors(validationResult.errors)
+            setPersonalInfo(updatedPersonalInfo)
+            updateData({
+              personalInfo: updatedPersonalInfo,
+              contactDetails,
+              addressDetails
+            })
+            return
+        }
+          }
+
+      try {
+          // Check for existing member
+          const membersRef = collection(db, 'Members')
+          const q = query(
+            membersRef,
+            where('idNumber', '==', updatedPersonalInfo.idNumber),
+            where('idType', '==', updatedPersonalInfo.idType)
+          )
+          const memberSnapshot = await getDocs(q)
+
+          if (!memberSnapshot.empty) {
+            const memberDoc = memberSnapshot.docs[0]
+            const memberData = memberDoc.data()
+
+            // Helper function to validate and transform language
+            const validateLanguage = (lang: string) => {
+              const validLanguages = ["English", "Afrikaans", "Zulu", "Xhosa", "Sotho", "Tswana"]
+              return validLanguages.includes(lang) ? lang : "English"
+            }
+
+            // Helper function to validate and transform marital status
+            const validateMaritalStatus = (status: string) => {
+              const validStatuses = ["Single", "Married", "Divorced", "Widowed"]
+              return validStatuses.includes(status) ? status : "Single"
+            }
+
+            // Auto-populate fields
+            const populatedPersonalInfo = {
+              title: memberData.title || '',
+              firstName: memberData.firstName || '',
+              lastName: memberData.lastName || '',
+              initials: memberData.initials || '',
+              dateOfBirth: memberData.dateOfBirth ? new Date(memberData.dateOfBirth.seconds * 1000) : null,
+              gender: memberData.gender || '',
+              language: validateLanguage(memberData.language || ''),
+              maritalStatus: validateMaritalStatus(memberData.maritalStatus || ''),
+              nationality: memberData.nationality || '',
+              idType: memberData.idType || personalInfo.idType,
+              idNumber: memberData.idNumber || updatedPersonalInfo.idNumber,
+              idDocumentUrl: memberData.idDocumentUrl || null,
+            }
+
+            // Fetch contact details
+            const contactsRef = collection(db, 'Contacts')
+            const contactsQuery = query(contactsRef, where('memberId', '==', memberDoc.id))
+            const contactsSnapshot = await getDocs(contactsQuery)
+            const contactDetails = contactsSnapshot.docs.map(doc => ({
+              type: doc.data().type as "Email" | "Phone Number",
+              value: doc.data().value
+            }))
+
+            // Fetch address details
+            const addressRef = collection(db, 'Address')
+            const addressQuery = query(addressRef, where('memberId', '==', memberDoc.id))
+            const addressSnapshot = await getDocs(addressQuery)
+            let addressDetails = {
+              streetAddress: '',
+              city: '',
+              stateProvince: '',
+              postalCode: '',
+              country: ''
+            }
+            
+            if (!addressSnapshot.empty) {
+              const addressData = addressSnapshot.docs[0].data()
+              addressDetails = {
+                streetAddress: addressData.streetAddress || '',
+                city: addressData.city || '',
+                stateProvince: addressData.stateProvince || '',
+                postalCode: addressData.postalCode || '',
+                country: addressData.country || ''
+              }
+            }
+
+            // Set active tab to show populated data
+            setActiveTab("personal-info")
+
+            // Update all form sections
+            setPersonalInfo(populatedPersonalInfo)
+            setContactDetails(contactDetails)
+            setAddressDetails(addressDetails)
+
+            // Update parent component
+            updateData({
+              personalInfo: populatedPersonalInfo,
+              contactDetails,
+              addressDetails
+            })
+
+            // Show success message with more details
+            toast({
+              title: "Existing Member Found",
+              description: `Member details for ${memberData.firstName} ${memberData.lastName} have been auto-populated.`,
+              variant: "default",
+            })
+
+            setWasAutoPopulated(true)  // Set flag when data is auto-populated
+            return
+          }
+        } catch (error) {
+          console.error('Error checking member:', error)
+          setIdValidationErrors(['Error checking member details. Please try again.'])
+      }
     }
 
     setPersonalInfo(updatedPersonalInfo)
-    
-    // Update parent with all current data
     updateData({
       personalInfo: updatedPersonalInfo,
       contactDetails,
@@ -219,7 +552,7 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {errors && getMissingFieldsSummary()}
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -256,6 +589,7 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
                   <Select
                     value={personalInfo.idType}
                     onValueChange={(value: "South African ID" | "Passport") => handlePersonalInfoChange("idType", value)}
+                    disabled={isDisabled}
                   >
                     <SelectTrigger id="type-of-id" className={errors?.idType ? "border-red-500" : ""}>
                       <SelectValue placeholder="Select ID type" />
@@ -281,9 +615,20 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
                     id="id-input"
                     data-testid="id-input"
                     aria-label="ID Number / Passport Number"
+                    placeholder={personalInfo.idType === "South African ID" ? "Enter 13 digit ID number" : "Enter passport number"}
                     value={personalInfo.idNumber}
                     onChange={(e) => handlePersonalInfoChange("idNumber", e.target.value)}
-                    className={errors?.idNumber ? "border-red-500" : ""}
+                    className={`${
+                      errors?.idNumber || idValidationErrors.length > 0 
+                        ? "border-red-500 border-2" 
+                        : wasAutoPopulated 
+                          ? "border-yellow-400 border-2" 
+                          : personalInfo.idNumber && !wasAutoPopulated 
+                            ? "border-green-500 border-2" 
+                            : ""
+                    }`}
+                    maxLength={personalInfo.idType === "South African ID" ? 13 : 20}
+                    disabled={isDisabled}
                   />
                   {errors?.idNumber && (
                     <p className="text-sm text-red-500 mt-1">{errors.idNumber}</p>
@@ -308,7 +653,11 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
 
               <div>
                 <Label htmlFor="title">Title</Label>
-                <Select value={personalInfo.title} onValueChange={(value) => handlePersonalInfoChange("title", value)}>
+                <Select
+                  value={personalInfo.title}
+                  onValueChange={(value) => handlePersonalInfoChange("title", value)}
+                  disabled={isDisabled}
+                >
                   <SelectTrigger id="title" className={errors?.title ? "border-red-500" : ""}>
                     <SelectValue placeholder="Select title" />
                   </SelectTrigger>
@@ -331,6 +680,7 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
                   value={personalInfo.firstName}
                   onChange={(e) => handlePersonalInfoChange("firstName", e.target.value)}
                   className={errors?.firstName ? "border-red-500" : ""}
+                  disabled={isDisabled}
                 />
                 {errors?.firstName && (
                   <p className="text-sm text-red-500 mt-1">{errors.firstName}</p>
@@ -344,6 +694,7 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
                   value={personalInfo.lastName}
                   onChange={(e) => handlePersonalInfoChange("lastName", e.target.value)}
                   className={errors?.lastName ? "border-red-500" : ""}
+                  disabled={isDisabled}
                 />
                 {errors?.lastName && (
                   <p className="text-sm text-red-500 mt-1">{errors.lastName}</p>
@@ -357,6 +708,7 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
                   value={personalInfo.initials}
                   onChange={(e) => handlePersonalInfoChange("initials", e.target.value)}
                   className={errors?.initials ? "border-red-500" : ""}
+                  disabled={isDisabled}
                 />
                 {errors?.initials && (
                   <p className="text-sm text-red-500 mt-1">{errors.initials}</p>
@@ -366,10 +718,9 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
               <div>
                 <Label htmlFor="dateofbirth">Date of Birth</Label>
                 <DatePicker
-                  id="dateofbirth"
-                  selected={personalInfo.dateOfBirth}
-                  onSelect={(date) => handlePersonalInfoChange("dateOfBirth", date)}
-                  className={errors?.dateOfBirth ? "border-red-500" : ""}
+                  date={personalInfo.dateOfBirth}
+                  onChange={(date) => handlePersonalInfoChange("dateOfBirth", date)}
+                  disabled={isDisabled}
                 />
                 {errors?.dateOfBirth && (
                   <p className="text-sm text-red-500 mt-1">{errors.dateOfBirth}</p>
@@ -378,7 +729,11 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
 
               <div>
                 <Label htmlFor="gender">Gender</Label>
-                <Select value={personalInfo.gender} onValueChange={(value) => handlePersonalInfoChange("gender", value)}>
+                <Select
+                  value={personalInfo.gender}
+                  onValueChange={(value) => handlePersonalInfoChange("gender", value)}
+                  disabled={isDisabled}
+                >
                   <SelectTrigger id="gender" className={errors?.gender ? "border-red-500" : ""}>
                     <SelectValue placeholder="Select gender" />
                   </SelectTrigger>
@@ -395,7 +750,11 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
 
               <div>
                 <Label htmlFor="language">Language</Label>
-                <Select value={personalInfo.language} onValueChange={(value) => handlePersonalInfoChange("language", value)}>
+                <Select
+                  value={personalInfo.language}
+                  onValueChange={(value) => handlePersonalInfoChange("language", value)}
+                  disabled={isDisabled}
+                >
                   <SelectTrigger id="language" className={errors?.language ? "border-red-500" : ""}>
                     <SelectValue placeholder="Select language" />
                   </SelectTrigger>
@@ -415,7 +774,11 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
 
               <div>
                 <Label htmlFor="marital-status">Marital Status</Label>
-                <Select value={personalInfo.maritalStatus} onValueChange={(value) => handlePersonalInfoChange("maritalStatus", value)}>
+                <Select
+                  value={personalInfo.maritalStatus}
+                  onValueChange={(value) => handlePersonalInfoChange("maritalStatus", value)}
+                  disabled={isDisabled}
+                >
                   <SelectTrigger id="marital-status" className={errors?.maritalStatus ? "border-red-500" : ""}>
                     <SelectValue placeholder="Select marital status" />
                   </SelectTrigger>
@@ -433,7 +796,11 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
 
               <div>
                 <Label htmlFor="nationality">Nationality</Label>
-                <Select value={personalInfo.nationality} onValueChange={(value) => handlePersonalInfoChange("nationality", value)}>
+                <Select
+                  value={personalInfo.nationality}
+                  onValueChange={(value) => handlePersonalInfoChange("nationality", value)}
+                  disabled={isDisabled}
+                >
                   <SelectTrigger id="nationality" className={errors?.nationality ? "border-red-500" : ""}>
                     <SelectValue placeholder="Select nationality" />
                   </SelectTrigger>
@@ -461,6 +828,7 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
                     onChange={handleFileUpload}
                     aria-label="ID Document"
                     className="flex-1"
+                    disabled={isDisabled}
                   />
                 {personalInfo.idDocumentUrl && (
                     <a 
@@ -500,9 +868,10 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
                 <Select
                   value={contact.type}
                   onValueChange={(value: "Email" | "Phone Number") => handleContactDetailsChange(index, "type", value)}
+                  disabled={isDisabled}
                 >
                         <SelectTrigger className={errors?.[`contact${index}`] ? "border-red-500" : ""}>
-                    <SelectValue placeholder="Select contact type" />
+                          <SelectValue>{contact.type}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Email">Email</SelectItem>
@@ -518,7 +887,7 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
                         placeholder={contact.type === "Email" ? "Enter email address" : "Enter phone number"}
                 />
                     </div>
-                    <Button type="button" variant="destructive" size="sm" onClick={() => handleRemoveContact(index)}>
+                    <Button type="button" variant="destructive" size="sm" onClick={() => handleRemoveContact(index)} disabled={isDisabled}>
                   Remove
                 </Button>
                   </div>
@@ -527,7 +896,7 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
                   )}
               </div>
             ))}
-              <Button id="Add Contact" type="button" onClick={handleAddContact} size="sm">
+              <Button id="Add Contact" type="button" onClick={handleAddContact} size="sm" disabled={isDisabled}>
               Add Contact
             </Button>
             </div>
@@ -554,6 +923,7 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
                   value={addressDetails.streetAddress}
                   onChange={(e) => handleAddressDetailsChange("streetAddress", e.target.value)}
                     className={errors?.streetAddress ? "border-red-500" : ""}
+                    disabled={isDisabled}
                 />
                   {errors?.streetAddress && (
                     <p className="text-sm text-red-500 mt-1">{errors.streetAddress}</p>
@@ -566,6 +936,7 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
                   value={addressDetails.city}
                   onChange={(e) => handleAddressDetailsChange("city", e.target.value)}
                     className={errors?.city ? "border-red-500" : ""}
+                    disabled={isDisabled}
                 />
                   {errors?.city && (
                     <p className="text-sm text-red-500 mt-1">{errors.city}</p>
@@ -578,6 +949,7 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
                   value={addressDetails.stateProvince}
                   onChange={(e) => handleAddressDetailsChange("stateProvince", e.target.value)}
                     className={errors?.stateProvince ? "border-red-500" : ""}
+                    disabled={isDisabled}
                 />
                   {errors?.stateProvince && (
                     <p className="text-sm text-red-500 mt-1">{errors.stateProvince}</p>
@@ -590,6 +962,7 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
                   value={addressDetails.postalCode}
                   onChange={(e) => handleAddressDetailsChange("postalCode", e.target.value)}
                     className={errors?.postalCode ? "border-red-500" : ""}
+                    disabled={isDisabled}
                 />
                   {errors?.postalCode && (
                     <p className="text-sm text-red-500 mt-1">{errors.postalCode}</p>
@@ -600,6 +973,7 @@ export function MainMemberForm({ data, updateData, errors }: MainMemberFormProps
                 <Select
                   value={addressDetails.country}
                   onValueChange={(value) => handleAddressDetailsChange("country", value)}
+                  disabled={isDisabled}
                 >
                     <SelectTrigger id="country" className={errors?.country ? "border-red-500" : ""}>
                     <SelectValue placeholder="Select country" />

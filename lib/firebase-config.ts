@@ -2,22 +2,68 @@
 
 import { initializeApp, getApps, getApp, FirebaseOptions } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
-import { getFirestore, initializeFirestore } from 'firebase/firestore'
+import { getFirestore, initializeFirestore, Firestore } from 'firebase/firestore'
+
+// Types for our database schema
+export interface Member {
+  member_id: string;
+  first_name: string;
+  last_name: string;
+  dob: Date;
+  id_number: string;
+  member_type: 'Main' | 'Dependent' | 'Beneficiary';
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface Contact {
+  contact_id: string;
+  member_id: string;
+  email: string;
+  phone: string;
+  created_at: Date;
+}
+
+export interface Address {
+  address_id: string;
+  member_id: string;
+  street: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  created_at: Date;
+}
+
+export interface Contract {
+  contract_id: string;
+  contract_name: string;
+  start_date: Date;
+  end_date: Date;
+  created_at: Date;
+}
+
+export interface ContractMember {
+  contract_member_id: string;
+  contract_id: string;
+  member_id: string;
+  role: 'Main Member' | 'Dependent' | 'Beneficiary';
+  created_at: Date;
+}
 
 // Your web app's Firebase configuration
 const firebaseConfig: FirebaseOptions = {
-  apiKey: "AIzaSyDCXIw7LJkOXlF3a4MTZA3kA3Q46gARpWU",
-  authDomain: "data-b93ed.firebaseapp.com",
-  projectId: "data-b93ed",
-  storageBucket: "data-b93ed.appspot.com",
-  messagingSenderId: "218236841715",
-  appId: "1:218236841715:web:f34737d3fa3bc759701186",
-  databaseURL: "https://data-b93ed-default-rtdb.firebaseio.com"
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL
 };
 
 let app;
 let auth;
-let db;
+let db: Firestore | undefined;
 
 if (typeof window !== 'undefined') {
   try {

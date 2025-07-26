@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { isValid } from "date-fns"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
@@ -10,44 +11,22 @@ import { Card } from "@/components/ui/card"
 import { DatePicker } from "@/components/ui/date-picker"
 import { validateSouthAfricanID } from "@/src/utils/idValidation"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { AlertCircle } from "lucide-react"
-
-type DependentData = {
-  personalInfo: {
-    firstName: string
-    lastName: string
-    initials: string
-    dateOfBirth: Date | null
-    gender: string
-    relationshipToMainMember: string
-    nationality: string
-    idType: "South African ID" | "Passport"
-    idNumber: string
-    dependentStatus: "Active" | "Inactive"
-    medicalAidNumber?: string
-    employer?: string
-    school?: string
-    idDocumentUrl: string | null
-  }
-  contactDetails: Array<{
-    type: "Email" | "Phone Number"
-    value: string
-  }>
-  addressDetails: {
-    streetAddress: string
-    city: string
-    stateProvince: string
-    postalCode: string
-    country: string
-  }
-}
+import { AlertCircle, Loader2 } from "lucide-react"
+import { collection, query, where, getDocs, addDoc, doc, updateDoc, deleteDoc, getDoc } from "firebase/firestore"
+import { db } from "@/src/FirebaseConfg"
+import { toast } from "@/components/ui/use-toast"
+import { DependentData } from "@/types/dependent"
 
 type DependentFormProps = {
   data: DependentData
-  updateData: (data: DependentData) => void
+  updateData: (data: DependentData, wasAutoPopulated?: boolean) => void
   error?: string | null
   mainMemberIdNumber?: string
   validationErrors?: { [key: string]: string }
+  onCancel?: () => void
+  isEditing?: boolean
+  onSave?: (data: DependentData) => Promise<void>
+  contractNumber?: string
 }
 
 export function DependentForm({ 
@@ -55,59 +34,160 @@ export function DependentForm({
   updateData, 
   error: externalError, 
   mainMemberIdNumber,
-  validationErrors = {} 
+  validationErrors,
+  onCancel,
+  isEditing,
+  onSave,
+  contractNumber
 }: DependentFormProps) {
+  validationErrors = validationErrors || {};
+  isEditing = isEditing || false;
+
   const [personalInfo, setPersonalInfo] = useState(data.personalInfo)
   const [contactDetails, setContactDetails] = useState(data.contactDetails)
   const [addressDetails, setAddressDetails] = useState(data.addressDetails)
   const [error, setError] = useState<string | null>(externalError || null)
   const [idValidationErrors, setIdValidationErrors] = useState<string[]>([])
+  const [autoPopulatedMemberId, setAutoPopulatedMemberId] = useState<string | null>(null)
+  const [passportCheckTimeout, setPassportCheckTimeout] = useState<NodeJS.Timeout | null>(null)
+  const [idCheckTimeout, setIdCheckTimeout] = useState<NodeJS.Timeout | null>(null)
+  const [isExistingMember, setIsExistingMember] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isUpdating, setIsUpdating] = useState(false)
+  const [memberCheckComplete, setMemberCheckComplete] = useState(false)
 
   useEffect(() => {
     setError(externalError || null)
   }, [externalError])
 
-  const handlePersonalInfoChange = (field: string, value: string | Date | null) => {
-    setError(null)
-    const updatedInfo = { ...personalInfo, [field]: value }
+  const handlePersonalInfoChange = async (field: string, value: string | Date | null) => {
+    const updatedPersonalInfo = { ...personalInfo, [field]: value }
 
-    // Validate ID number in real-time
-    if (field === "idNumber" && typeof value === "string" && updatedInfo.idType === "South African ID") {
-      // First check if ID matches main member's ID
-      if (mainMemberIdNumber && value === mainMemberIdNumber) {
-        setIdValidationErrors(['Dependent cannot have the same ID number as the main member']);
-        return;
+    // Handle ID number changes
+    if (field === "idNumber") {
+      // Reset states
+      setIdValidationErrors([])
+      setMemberCheckComplete(false)
+      setIsExistingMember(false)
+
+      // Check for duplicate with main member immediately
+          if (mainMemberIdNumber && value === mainMemberIdNumber) {
+        setIdValidationErrors(['Dependent cannot have the same ID number as the main member'])
+        return
       }
 
-      const validationResult = validateSouthAfricanID(value);
-      setIdValidationErrors(validationResult.errors);
+      // Format input based on ID type
+      if (personalInfo.idType === "South African ID") {
+        // Only allow numbers and limit to 13 digits
+        const numericValue = value?.toString().replace(/\D/g, '').slice(0, 13) || ''
+        updatedPersonalInfo.idNumber = numericValue
 
-      // Auto-fill date of birth and gender if valid
-      if (validationResult.isValid) {
-        if (validationResult.dateOfBirth) {
-          updatedInfo.dateOfBirth = validationResult.dateOfBirth;
+        // Update the form immediately with the formatted value
+        setPersonalInfo(updatedPersonalInfo)
+        updateData({
+          personalInfo: updatedPersonalInfo,
+          contactDetails,
+          addressDetails
+        })
+
+        // Clear any existing timeout
+        if (idCheckTimeout) {
+          clearTimeout(idCheckTimeout)
         }
-        if (validationResult.gender) {
-          updatedInfo.gender = validationResult.gender;
-        }
+
+        // Set new timeout for validation
+        const timeout = setTimeout(async () => {
+          // Only validate if we have a complete ID number
+          if (numericValue.length === 13) {
+            const validationResult = validateSouthAfricanID(numericValue)
+            if (!validationResult.isValid) {
+              setIdValidationErrors(validationResult.errors)
+              return
+            }
+
+            // Auto-complete gender and date of birth if valid
+            const updatedInfo = { ...updatedPersonalInfo }
+              if (validationResult.dateOfBirth) {
+              validationResult.dateOfBirth.setHours(0, 0, 0, 0)
+              updatedInfo.dateOfBirth = validationResult.dateOfBirth
+              }
+              if (validationResult.gender) {
+              updatedInfo.gender = validationResult.gender
+            }
+
+            // Update form with auto-completed data
+            setPersonalInfo(updatedInfo)
+            updateData({
+              personalInfo: updatedInfo,
+              contactDetails,
+              addressDetails
+            })
+
+            // Show success toast
+            toast({
+              title: "Auto-completed",
+              description: "Date of Birth and Gender have been automatically filled based on the ID number.",
+              variant: "default",
+            })
+              
+              // Check for existing member
+            try {
+              const membersRef = collection(db, 'Members')
+              const q = query(
+                membersRef,
+                where('idNumber', '==', numericValue),
+                where('idType', '==', 'South African ID')
+              )
+              const memberSnapshot = await getDocs(q)
+
+              if (!memberSnapshot.empty) {
+                await checkAndPopulateMember(numericValue, 'South African ID')
+              }
+            } catch (error) {
+              console.error('Error checking existing member:', error)
+            }
+          }
+        }, 1000)
+
+        setIdCheckTimeout(timeout)
+        return
       } else {
-        // Even if not fully valid, still try to auto-fill what we can
-        if (validationResult.dateOfBirth) {
-          updatedInfo.dateOfBirth = validationResult.dateOfBirth;
+        // Handle passport number
+        const passportValue = value?.toString().slice(0, 20) || ''
+        updatedPersonalInfo.idNumber = passportValue
+
+        // Update form immediately with formatted value
+        setPersonalInfo(updatedPersonalInfo)
+        updateData({
+          personalInfo: updatedPersonalInfo,
+          contactDetails,
+          addressDetails
+        })
+
+        // Clear existing timeout
+        if (passportCheckTimeout) {
+          clearTimeout(passportCheckTimeout)
         }
-        if (validationResult.gender) {
-          updatedInfo.gender = validationResult.gender;
-        }
+
+        // Set new timeout for passport check
+        const timeout = setTimeout(async () => {
+          if (passportValue) {
+            await checkAndPopulateMember(passportValue, 'Passport')
+          }
+        }, 1000)
+
+        setPassportCheckTimeout(timeout)
+        return
       }
     }
 
-    // Clear validation errors when switching ID type
-    if (field === "idType") {
-      setIdValidationErrors([]);
-    }
-
-    setPersonalInfo(updatedInfo)
-    updateData({ ...data, personalInfo: updatedInfo })
+    // Handle all other field changes
+    setPersonalInfo(updatedPersonalInfo)
+    updateData({
+      personalInfo: updatedPersonalInfo,
+      contactDetails,
+      addressDetails
+    })
   }
 
   const handleContactDetailsChange = (index: number, field: string, value: string) => {
@@ -139,6 +219,645 @@ export function DependentForm({
     updateData({ ...data, contactDetails: updatedContacts })
   }
 
+  // Update the check for existing relationship function
+  const checkExistingRelationship = async (memberId: string, contractNumber: string): Promise<boolean> => {
+    try {
+      const relationshipsRef = collection(db, 'member_contract_relationships');
+      const q = query(
+        relationshipsRef,
+        where('member_id', '==', memberId),
+        where('contract_number', '==', contractNumber),
+        where('role', '==', 'Dependent')
+      );
+      
+      const snapshot = await getDocs(q);
+      return !snapshot.empty;
+    } catch (error) {
+      console.error('Error checking relationship:', error);
+      return false;
+    }
+  };
+
+  // Update the create relationship function
+  const createMemberRelationship = async (memberId: string, contractNumber: string): Promise<void> => {
+    try {
+      const relationshipExists = await checkExistingRelationship(memberId, contractNumber);
+      
+      if (!relationshipExists) {
+        const relationshipsRef = collection(db, 'member_contract_relationships');
+        await addDoc(relationshipsRef, {
+          member_id: memberId,
+          contract_number: contractNumber,
+          role: 'Dependent',
+          created_at: new Date(),
+          updated_at: new Date()
+        });
+
+        toast({
+          title: "Success",
+          description: "Member relationship created successfully",
+          variant: "default",
+        });
+      } else {
+        console.log("Relationship already exists, skipping creation");
+      }
+    } catch (error) {
+      console.error('Error creating relationship:', error);
+      throw new Error('Failed to create member relationship');
+    }
+  };
+
+  // Add function to update existing member
+  const updateExistingMember = async (memberId: string) => {
+    try {
+      const memberRef = doc(db, 'Members', memberId);
+      await updateDoc(memberRef, {
+        ...personalInfo,
+        updatedAt: new Date()
+      });
+
+      // Update contact details
+      const contactsRef = collection(db, 'Contacts');
+      const existingContactsQuery = query(contactsRef, where('memberId', '==', memberId));
+      const existingContacts = await getDocs(existingContactsQuery);
+      
+      // Delete existing contacts
+      await Promise.all(existingContacts.docs.map(doc => deleteDoc(doc.ref)));
+      
+      // Add new contacts
+      await Promise.all(contactDetails.map(contact =>
+        addDoc(contactsRef, {
+          ...contact,
+          memberId,
+          memberIdNumber: personalInfo.idNumber,
+          updatedAt: new Date()
+        })
+      ));
+
+      // Update address
+      const addressRef = collection(db, 'Address');
+      const existingAddressQuery = query(addressRef, where('memberId', '==', memberId));
+      const existingAddress = await getDocs(existingAddressQuery);
+      
+      if (!existingAddress.empty) {
+        await updateDoc(existingAddress.docs[0].ref, {
+          ...addressDetails,
+          updatedAt: new Date()
+        });
+      } else {
+        await addDoc(addressRef, {
+          ...addressDetails,
+          memberId,
+          memberIdNumber: personalInfo.idNumber,
+          createdAt: new Date()
+        });
+      }
+
+      toast({
+        title: "Success",
+        description: "Member details updated successfully",
+        variant: "default",
+      });
+    } catch (error) {
+      console.error('Error updating member:', error);
+      throw new Error('Failed to update member details');
+    }
+  };
+
+  // Modify checkAndPopulateMember to set isExistingMember
+  const checkAndPopulateMember = async (idValue: string, idType: "South African ID" | "Passport") => {
+    console.log("Starting member check for:", idValue, idType);
+    try {
+      const membersRef = collection(db, 'Members');
+      const q = query(
+        membersRef,
+        where('idNumber', '==', idValue),
+        where('idType', '==', idType)
+      );
+      const memberSnapshot = await getDocs(q);
+      console.log("Query complete, found members:", !memberSnapshot.empty);
+
+      setMemberCheckComplete(true)
+      setIsExistingMember(!memberSnapshot.empty)
+
+      if (!memberSnapshot.empty) {
+        const memberDoc = memberSnapshot.docs[0];
+        const memberData = memberDoc.data();
+        console.log("Found member:", memberData);
+
+        // Store the member ID and set existing member flag
+        setAutoPopulatedMemberId(memberDoc.id);
+        setIsExistingMember(true);
+
+        // Auto-populate personal info fields
+        const populatedInfo = {
+          ...personalInfo,
+          firstName: memberData.firstName || '',
+          lastName: memberData.lastName || '',
+          initials: memberData.initials || '',
+          dateOfBirth: memberData.dateOfBirth ? new Date(memberData.dateOfBirth.seconds * 1000) : null,
+          gender: memberData.gender || '',
+          nationality: memberData.nationality || '',
+          dependentStatus: memberData.dependentStatus || 'Active',
+          medicalAidNumber: memberData.medicalAidNumber || '',
+          employer: memberData.employer || '',
+          school: memberData.school || '',
+          idDocumentUrl: memberData.idDocumentUrl || null,
+          idNumber: idValue,
+          idType: idType
+        };
+
+        // Fetch contact details
+        const contactsRef = collection(db, 'Contacts');
+        const contactsQuery = query(contactsRef, where('memberId', '==', memberDoc.id));
+        const contactsSnapshot = await getDocs(contactsQuery);
+        const newContactDetails = contactsSnapshot.docs.map(doc => ({
+          type: doc.data().type as "Email" | "Phone Number",
+          value: doc.data().value
+        }));
+
+        // Fetch address details
+        const addressRef = collection(db, 'Address');
+        const addressQuery = query(addressRef, where('memberId', '==', memberDoc.id));
+        const addressSnapshot = await getDocs(addressQuery);
+        let newAddressDetails = {
+          streetAddress: '',
+          city: '',
+          stateProvince: '',
+          postalCode: '',
+          country: ''
+        };
+        
+        if (!addressSnapshot.empty) {
+          const addressData = addressSnapshot.docs[0].data();
+          newAddressDetails = {
+            streetAddress: addressData.streetAddress || '',
+            city: addressData.city || '',
+            stateProvince: addressData.stateProvince || '',
+            postalCode: addressData.postalCode || '',
+            country: addressData.country || ''
+          };
+        }
+
+        // Update all form sections
+        setPersonalInfo(populatedInfo);
+        setContactDetails(newContactDetails);
+        setAddressDetails(newAddressDetails);
+
+        // Update parent component with wasAutoPopulated flag
+        updateData({
+          personalInfo: {
+            title: populatedInfo.title,
+            firstName: populatedInfo.firstName,
+            lastName: populatedInfo.lastName,
+            initials: populatedInfo.initials,
+            dateOfBirth: populatedInfo.dateOfBirth,
+            gender: populatedInfo.gender,
+            relationshipToMainMember: populatedInfo.relationshipToMainMember,
+            nationality: populatedInfo.nationality,
+            idType: populatedInfo.idType,
+            idNumber: populatedInfo.idNumber,
+            dependentStatus: populatedInfo.dependentStatus,
+            medicalAidNumber: populatedInfo.medicalAidNumber,
+            employer: populatedInfo.employer,
+            school: populatedInfo.school,
+            idDocumentUrl: populatedInfo.idDocumentUrl
+          },
+          contactDetails: newContactDetails,
+          addressDetails: newAddressDetails
+        }, true);
+
+        toast({
+          title: "Existing Member Found",
+          description: `Member details for ${memberData.firstName} ${memberData.lastName} have been auto-populated.`,
+          variant: "default",
+        });
+      }
+    } catch (error) {
+      console.error('Error checking member:', error);
+      setError('Error checking member details. Please try again.');
+    }
+  };
+
+  // Add new function for handling member updates
+  const handleUpdateMember = async () => {
+    setIsUpdating(true)
+    setError(null)
+    
+    try {
+      // Find member using ID type and number
+      const membersRef = collection(db, 'Members')
+      const memberQuery = query(
+        membersRef,
+        where('idNumber', '==', personalInfo.idNumber),
+        where('idType', '==', personalInfo.idType)
+      )
+      const memberSnapshot = await getDocs(memberQuery)
+      
+      if (memberSnapshot.empty) {
+        throw new Error('Member not found')
+      }
+
+      const memberId = memberSnapshot.docs[0].id
+      
+      // Update member details in Members collection
+      const memberRef = doc(db, 'Members', memberId)
+      await updateDoc(memberRef, {
+        ...personalInfo,
+        updatedAt: new Date()
+      })
+
+      // Get member_contract_relationships record
+      const relationshipsRef = collection(db, 'member_contract_relationships')
+      const relationshipQuery = query(
+        relationshipsRef,
+        where('member_id', '==', memberId),
+        where('contract_number', '==', contractNumber),
+        where('role', '==', 'Dependent')
+      )
+      const relationshipSnapshot = await getDocs(relationshipQuery)
+      
+      if (!relationshipSnapshot.empty) {
+        const memberContractRelationshipId = relationshipSnapshot.docs[0].id
+
+        // Update or create Relationship record
+        const relationshipTypeQuery = query(
+          collection(db, 'Relationship'),
+          where('member_contract_relationship_id', '==', memberContractRelationshipId)
+        )
+        const relationshipTypeSnapshot = await getDocs(relationshipTypeQuery)
+        
+        if (!relationshipTypeSnapshot.empty) {
+          // Update existing Relationship record
+          await updateDoc(relationshipTypeSnapshot.docs[0].ref, {
+            relationshipType: personalInfo.relationshipToMainMember,
+            updatedAt: new Date()
+          })
+        } else {
+          // Create new Relationship record if it doesn't exist
+          await addDoc(collection(db, 'Relationship'), {
+            member_contract_relationship_id: memberContractRelationshipId,
+            relationshipType: personalInfo.relationshipToMainMember,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          })
+        }
+
+        // Update or create Status record
+        const statusQuery = query(
+          collection(db, 'Status'),
+          where('member_contract_relationship_id', '==', memberContractRelationshipId)
+        )
+        const statusSnapshot = await getDocs(statusQuery)
+        
+        if (!statusSnapshot.empty) {
+          // Update existing Status record
+          await updateDoc(statusSnapshot.docs[0].ref, {
+            status: personalInfo.dependentStatus,
+            updatedAt: new Date()
+          })
+        } else {
+          // Create new Status record if it doesn't exist
+          await addDoc(collection(db, 'Status'), {
+            member_contract_relationship_id: memberContractRelationshipId,
+            status: personalInfo.dependentStatus,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          })
+        }
+      }
+
+      // Update contact details
+      const contactsRef = collection(db, 'Contacts')
+      const existingContactsQuery = query(contactsRef, where('memberId', '==', memberId))
+      const existingContacts = await getDocs(existingContactsQuery)
+      
+      // Delete existing contacts
+      await Promise.all(existingContacts.docs.map(doc => deleteDoc(doc.ref)))
+      
+      // Add new contacts
+      await Promise.all(contactDetails.map(contact =>
+        addDoc(contactsRef, {
+          ...contact,
+          memberId,
+          memberIdNumber: personalInfo.idNumber,
+          updatedAt: new Date()
+        })
+      ))
+
+      // Update address
+      const addressRef = collection(db, 'Address')
+      const existingAddressQuery = query(addressRef, where('memberId', '==', memberId))
+      const existingAddress = await getDocs(existingAddressQuery)
+      
+      if (!existingAddress.empty) {
+        await updateDoc(existingAddress.docs[0].ref, {
+          ...addressDetails,
+          updatedAt: new Date()
+        })
+      } else {
+        await addDoc(addressRef, {
+          ...addressDetails,
+          memberId,
+          memberIdNumber: personalInfo.idNumber,
+          createdAt: new Date()
+        })
+      }
+
+      // Fetch the updated member data
+      const updatedMemberDoc = await getDoc(memberRef)
+      const updatedMemberData = updatedMemberDoc.data()
+
+      // Update parent component with latest data
+      updateData({
+        personalInfo: {
+          title: updatedMemberData?.title || '',
+          firstName: updatedMemberData?.firstName || '',
+          lastName: updatedMemberData?.lastName || '',
+          initials: updatedMemberData?.initials || '',
+          dateOfBirth: updatedMemberData?.dateOfBirth ? new Date(updatedMemberData.dateOfBirth.seconds * 1000) : null,
+          gender: updatedMemberData?.gender || '',
+          relationshipToMainMember: updatedMemberData?.relationshipToMainMember || '',
+          nationality: updatedMemberData?.nationality || '',
+          idType: (updatedMemberData?.idType as "South African ID" | "Passport") || "South African ID",
+          idNumber: updatedMemberData?.idNumber || '',
+          dependentStatus: updatedMemberData?.dependentStatus || 'Active',
+          medicalAidNumber: updatedMemberData?.medicalAidNumber || '',
+          employer: updatedMemberData?.employer || '',
+          school: updatedMemberData?.school || '',
+          idDocumentUrl: updatedMemberData?.idDocumentUrl || null
+        },
+        contactDetails,
+        addressDetails
+      })
+
+      toast({
+        title: "Success",
+        description: "Dependent details updated successfully",
+        variant: "default",
+      })
+
+      // Close the dialog
+      if (onCancel) {
+        onCancel()
+      }
+    } catch (error) {
+      console.error('Error updating member:', error)
+      setError(error instanceof Error ? error.message : 'Failed to update member details')
+    } finally {
+      setIsUpdating(false)
+    }
+  }
+
+  const handleSave = async () => {
+    if (onSave) {
+      setIsSaving(true);
+      setError(null); // Clear any existing errors
+      
+      try {
+        // Check if this person is already a dependent on this contract
+        if (contractNumber) {
+          // First find if the member exists
+          const membersRef = collection(db, 'Members');
+          const memberQuery = query(
+            membersRef,
+            where('idNumber', '==', personalInfo.idNumber),
+            where('idType', '==', personalInfo.idType)
+          );
+          const memberSnapshot = await getDocs(memberQuery);
+          
+          if (!memberSnapshot.empty) {
+            const memberId = memberSnapshot.docs[0].id;
+            
+            // Check for existing relationship in this contract
+            const relationshipsRef = collection(db, 'member_contract_relationships');
+            const relationshipQuery = query(
+              relationshipsRef,
+              where('member_id', '==', memberId),
+              where('contract_number', '==', contractNumber),
+              where('role', '==', 'Dependent')
+            );
+            const relationshipSnapshot = await getDocs(relationshipQuery);
+            
+            if (!relationshipSnapshot.empty) {
+              setError('This person is already a Dependent on this contract');
+              setIsSaving(false);
+              return;
+            }
+          }
+        }
+
+        if (isEditing && contractNumber) {
+          // Find member using ID type and number
+          const membersRef = collection(db, 'Members');
+          const memberQuery = query(
+            membersRef,
+            where('idNumber', '==', personalInfo.idNumber),
+            where('idType', '==', personalInfo.idType)
+          );
+          
+          const memberSnapshot = await getDocs(memberQuery);
+          
+          if (memberSnapshot.empty) {
+            throw new Error('Member not found');
+          }
+
+          const memberId = memberSnapshot.docs[0].id;
+          
+          // Update the member details
+          await updateExistingMember(memberId);
+
+          // Fetch the latest data after update
+          const updatedMemberDoc = await getDoc(doc(db, 'Members', memberId));
+          const updatedMemberData = updatedMemberDoc.data();
+
+          // Fetch latest contact details
+          const contactsRef = collection(db, 'Contacts');
+          const contactsQuery = query(contactsRef, where('memberId', '==', memberId));
+          const contactsSnapshot = await getDocs(contactsQuery);
+          const latestContactDetails = contactsSnapshot.docs.map(doc => ({
+            type: doc.data().type as "Email" | "Phone Number",
+            value: doc.data().value
+          }));
+
+          // Fetch latest address details
+          const addressRef = collection(db, 'Address');
+          const addressQuery = query(addressRef, where('memberId', '==', memberId));
+          const addressSnapshot = await getDocs(addressQuery);
+          let latestAddressDetails = {
+            streetAddress: '',
+            city: '',
+            stateProvince: '',
+            postalCode: '',
+            country: ''
+          };
+          
+          if (!addressSnapshot.empty) {
+            const addressData = addressSnapshot.docs[0].data();
+            latestAddressDetails = {
+              streetAddress: addressData.streetAddress || '',
+              city: addressData.city || '',
+              stateProvince: addressData.stateProvince || '',
+              postalCode: addressData.postalCode || '',
+              country: addressData.country || ''
+            };
+          }
+
+          // Update parent component with latest data
+          updateData({
+            personalInfo: {
+              title: updatedMemberData?.title || '',
+              firstName: updatedMemberData?.firstName || '',
+              lastName: updatedMemberData?.lastName || '',
+              initials: updatedMemberData?.initials || '',
+              dateOfBirth: updatedMemberData?.dateOfBirth ? new Date(updatedMemberData.dateOfBirth.seconds * 1000) : null,
+              gender: updatedMemberData?.gender || '',
+              relationshipToMainMember: updatedMemberData?.relationshipToMainMember || '',
+              nationality: updatedMemberData?.nationality || '',
+              idType: (updatedMemberData?.idType as "South African ID" | "Passport") || "South African ID",
+              idNumber: updatedMemberData?.idNumber || '',
+              dependentStatus: updatedMemberData?.dependentStatus || 'Active',
+              medicalAidNumber: updatedMemberData?.medicalAidNumber,
+              employer: updatedMemberData?.employer,
+              school: updatedMemberData?.school,
+              idDocumentUrl: updatedMemberData?.idDocumentUrl || null
+            },
+            contactDetails: latestContactDetails,
+            addressDetails: latestAddressDetails
+          }, false);
+          
+          toast({
+            title: "Success",
+            description: "Dependent details updated successfully",
+            variant: "default",
+          });
+
+          // Close dialog
+          if (onCancel) {
+            onCancel();
+          }
+        } else {
+          // Check for existing relationship if we have a contract number
+          if (contractNumber) {
+            // Find member using ID type and number
+            const membersRef = collection(db, 'Members');
+            const memberQuery = query(
+              membersRef,
+              where('idNumber', '==', personalInfo.idNumber),
+              where('idType', '==', personalInfo.idType)
+            );
+            
+            const memberSnapshot = await getDocs(memberQuery);
+            
+            if (!memberSnapshot.empty) {
+              const memberId = memberSnapshot.docs[0].id;
+              const relationshipExists = await checkExistingRelationship(memberId, contractNumber);
+              if (relationshipExists) {
+                setError('This person is already a dependent on this contract');
+                return;
+              }
+            }
+          }
+
+          // Create new member or save changes
+          await onSave({
+            personalInfo,
+            contactDetails,
+            addressDetails
+          });
+
+          // Find the newly created member to get its latest data
+          const newMemberQuery = query(
+            collection(db, 'Members'),
+            where('idNumber', '==', personalInfo.idNumber),
+            where('idType', '==', personalInfo.idType)
+          );
+          const newMemberSnapshot = await getDocs(newMemberQuery);
+          
+          if (!newMemberSnapshot.empty) {
+            const newMemberId = newMemberSnapshot.docs[0].id;
+            const newMemberData = newMemberSnapshot.docs[0].data();
+
+            // Fetch latest contact details
+            const contactsRef = collection(db, 'Contacts');
+            const contactsQuery = query(contactsRef, where('memberId', '==', newMemberId));
+            const contactsSnapshot = await getDocs(contactsQuery);
+            const latestContactDetails = contactsSnapshot.docs.map(doc => ({
+              type: doc.data().type as "Email" | "Phone Number",
+              value: doc.data().value
+            }));
+
+            // Fetch latest address details
+            const addressRef = collection(db, 'Address');
+            const addressQuery = query(addressRef, where('memberId', '==', newMemberId));
+            const addressSnapshot = await getDocs(addressQuery);
+            let latestAddressDetails = {
+              streetAddress: '',
+              city: '',
+              stateProvince: '',
+              postalCode: '',
+              country: ''
+            };
+            
+            if (!addressSnapshot.empty) {
+              const addressData = addressSnapshot.docs[0].data();
+              latestAddressDetails = {
+                streetAddress: addressData.streetAddress || '',
+                city: addressData.city || '',
+                stateProvince: addressData.stateProvince || '',
+                postalCode: addressData.postalCode || '',
+                country: addressData.country || ''
+              };
+            }
+
+            // Update parent component with latest data
+            const updatedData = {
+              personalInfo: {
+                title: newMemberData?.title || '',
+                firstName: newMemberData?.firstName || '',
+                lastName: newMemberData?.lastName || '',
+                initials: newMemberData?.initials || '',
+                dateOfBirth: newMemberData?.dateOfBirth ? new Date(newMemberData.dateOfBirth.seconds * 1000) : null,
+                gender: newMemberData?.gender || '',
+                relationshipToMainMember: newMemberData?.relationshipToMainMember || '',
+                nationality: newMemberData?.nationality || '',
+                idType: (newMemberData?.idType as "South African ID" | "Passport") || "South African ID",
+                idNumber: newMemberData?.idNumber || '',
+                dependentStatus: newMemberData?.dependentStatus || 'Active',
+                medicalAidNumber: newMemberData?.medicalAidNumber,
+                employer: newMemberData?.employer,
+                school: newMemberData?.school,
+                idDocumentUrl: newMemberData?.idDocumentUrl || null
+              },
+              contactDetails: latestContactDetails,
+              addressDetails: latestAddressDetails
+            };
+
+            // First update the parent component
+            updateData(updatedData, false);
+
+            // Show success message
+            toast({
+              title: "Success",
+              description: "Dependent added successfully",
+              variant: "default",
+            });
+
+            // Then close the dialog
+            if (onCancel) {
+              onCancel();
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error saving:', error);
+        setError(error instanceof Error ? error.message : 'Failed to save. Please try again.');
+      } finally {
+        setIsSaving(false);
+      }
+    }
+  };
+
   return (
     <div className="space-y-4">
       <Tabs defaultValue="personal" className="w-full">
@@ -157,6 +876,7 @@ export function DependentForm({
                   <Select
                     value={personalInfo.idType}
                     onValueChange={(value: "South African ID" | "Passport") => handlePersonalInfoChange("idType", value)}
+                    disabled={isEditing}
                   >
                     <SelectTrigger id="type-of-id" className={validationErrors?.idType ? "border-red-500" : ""}>
                       <SelectValue placeholder="Select ID type" />
@@ -184,7 +904,16 @@ export function DependentForm({
                     aria-label="ID Number / Passport Number"
                     value={personalInfo.idNumber}
                     onChange={(e) => handlePersonalInfoChange("idNumber", e.target.value)}
-                    className={validationErrors?.idNumber || idValidationErrors.length > 0 ? "border-red-500" : ""}
+                    className={`border-2 ${
+                      validationErrors?.idNumber || idValidationErrors.length > 0 
+                        ? "border-red-500" 
+                        : memberCheckComplete
+                          ? isExistingMember
+                            ? "border-yellow-500"
+                            : "border-green-500"
+                          : ""
+                    }`}
+                    disabled={isEditing}
                   />
                   {(validationErrors?.idNumber || idValidationErrors.length > 0) && (
                     <p className="text-sm text-red-500 mt-1">
@@ -206,6 +935,27 @@ export function DependentForm({
 
               {/* Personal Information Fields */}
               <div className="col-span-3 grid grid-cols-3 gap-3">
+                  <div>
+                    <Label htmlFor="title">Title</Label>
+                    <Select
+                      value={personalInfo.title}
+                      onValueChange={(value) => handlePersonalInfoChange("title", value)}
+                    >
+                      <SelectTrigger id="title" className={validationErrors?.title ? "border-red-500" : ""}>
+                        <SelectValue placeholder="Select title" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Mr">Mr</SelectItem>
+                        <SelectItem value="Mrs">Mrs</SelectItem>
+                        <SelectItem value="Ms">Ms</SelectItem>
+                        <SelectItem value="Dr">Dr</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {validationErrors?.title && (
+                      <p className="text-sm text-red-500 mt-1">{validationErrors.title}</p>
+                    )}
+                  </div>
+
                   <div>
                     <Label htmlFor="firstName">First Name</Label>
                     <Input
@@ -248,9 +998,8 @@ export function DependentForm({
                   <div>
                     <Label htmlFor="dateOfBirth">Date of Birth</Label>
                     <DatePicker
-                      selected={personalInfo.dateOfBirth}
-                      onSelect={(date) => handlePersonalInfoChange("dateOfBirth", date)}
-                    className={validationErrors?.dateOfBirth ? "border-red-500" : ""}
+                      date={personalInfo.dateOfBirth}
+                      onChange={(date) => handlePersonalInfoChange("dateOfBirth", date)}
                     />
                   {validationErrors?.dateOfBirth && (
                     <p className="text-sm text-red-500 mt-1">{validationErrors.dateOfBirth}</p>
@@ -284,7 +1033,7 @@ export function DependentForm({
                       onValueChange={(value) => handlePersonalInfoChange("relationshipToMainMember", value)}
                     >
                     <SelectTrigger 
-                      id="relationshipToMainMember" 
+                      id="relationship" 
                       className={validationErrors?.relationshipToMainMember ? "border-red-500" : ""}
                     >
                         <SelectValue placeholder="Select relationship" />
@@ -334,7 +1083,7 @@ export function DependentForm({
                       onValueChange={(value: "Active" | "Inactive") => handlePersonalInfoChange("dependentStatus", value)}
                     >
                     <SelectTrigger 
-                      id="dependentStatus" 
+                      id="status" 
                       className={validationErrors?.dependentStatus ? "border-red-500" : ""}
                     >
                         <SelectValue placeholder="Select status" />
@@ -477,6 +1226,34 @@ export function DependentForm({
           </Card>
         </TabsContent>
       </Tabs>
+      <div className="flex justify-end space-x-2 mt-4">
+        {error && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <Button 
+          variant="outline" 
+          onClick={onCancel}
+          disabled={isSaving || isUpdating}
+        >
+          Cancel
+        </Button>
+        <Button 
+          onClick={isEditing ? handleUpdateMember : handleSave}
+          disabled={isSaving || isUpdating}
+        >
+          {isSaving || isUpdating ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              {isEditing ? 'Updating...' : 'Saving...'}
+            </>
+          ) : (
+            isEditing ? 'Update' : 'Save'
+          )}
+        </Button>
+      </div>
     </div>
   )
 } 

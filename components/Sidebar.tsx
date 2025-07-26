@@ -14,7 +14,9 @@ import {
   Wrench, 
   LayoutDashboard, 
   CreditCard,
-  UserCog
+  UserCog,
+  FileEdit,
+  Skull
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState } from "react"
@@ -30,6 +32,7 @@ export function Sidebar({ setCurrentPage, userRole }: SidebarProps) {
   const [isMaintenanceOpen, setIsMaintenanceOpen] = useState(false)
   const [isClaimsOpen, setIsClaimsOpen] = useState(false)
   const [isGeneralOpen, setIsGeneralOpen] = useState(true)
+  const [isClaimUtilityOpen, setIsClaimUtilityOpen] = useState(false)
 
   const isAdmin = userRole === 'Admin'
 
@@ -53,6 +56,7 @@ export function Sidebar({ setCurrentPage, userRole }: SidebarProps) {
   const contractItems = [
     { name: "Add Contract", icon: PlusCircle, page: "addContract" },
     { name: "Search Contract", icon: Search, page: "searchContract" },
+    { name: "Amendment", icon: FileEdit, page: "contractAmendment" }
   ]
 
   const utilityItems = [
@@ -207,7 +211,7 @@ export function Sidebar({ setCurrentPage, userRole }: SidebarProps) {
               <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isUtilityOpen ? 'rotate-180' : ''}`} />
             </Button>
 
-            <div className={`pl-4 space-y-1 overflow-hidden transition-all duration-200 ${isUtilityOpen ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
+            <div className={`pl-4 space-y-1 overflow-hidden transition-all duration-200 ${isUtilityOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'}`}>
               {utilityItems.map((item) => (
                 <a
                   key={item.name}
@@ -220,6 +224,34 @@ export function Sidebar({ setCurrentPage, userRole }: SidebarProps) {
                   {item.name}
                 </a>
               ))}
+
+              {/* Claim Submenu */}
+              <div className="space-y-1">
+                <Button 
+                  variant="ghost" 
+                  id="ClaimUtility"
+                  className="w-full justify-between py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 hover:text-white"
+                  onClick={() => setIsClaimUtilityOpen(!isClaimUtilityOpen)}
+                >
+                  <div className="flex items-center">
+                    <AlertTriangle className="inline-block mr-2 h-4 w-4" />
+                    Claim
+                  </div>
+                  <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isClaimUtilityOpen ? 'rotate-180' : ''}`} />
+                </Button>
+
+                <div className={`pl-4 space-y-1 overflow-hidden transition-all duration-200 ${isClaimUtilityOpen ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
+                  <a
+                    href="#"
+                    id="CauseOfDeath"
+                    className="block py-2 px-4 rounded transition duration-200 hover:bg-gray-700 hover:text-white text-sm"
+                    onClick={() => setCurrentPage('causeOfDeath')}
+                  >
+                    <Skull className="inline-block mr-2 h-4 w-4" />
+                    Cause of Death
+                  </a>
+                </div>
+              </div>
             </div>
           </div>
         )}

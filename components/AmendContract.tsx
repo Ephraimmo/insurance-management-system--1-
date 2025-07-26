@@ -86,34 +86,15 @@ type ContractData = {
     name: string
     coverAmount: string
     premium: number | null
-    description: string
-    features: string[]
-    maxDependents: number
-    status: string
-    isSelected: boolean
-    allPolicies?: Array<{
-      id: string
-      name: string
-      coverAmount: string
-      premium: number
-      description: string
-      features: string[]
-      maxDependents: number
-      status: string
-      isSelected: boolean
-    }>
+    selectedPolicyId: string
   }
   cateringOptions: Array<{
     id: string
     name: string
     price: number
-    description?: string
-    isSelected?: boolean
   }>
   status?: string
 }
-
-export type { ContractData }
 
 const emptyContractData: ContractData = {
   mainMember: {
@@ -143,17 +124,14 @@ const emptyContractData: ContractData = {
   beneficiaries: [],
   dependents: [],
   policiesDetails: {
-    policiesId: '',
-    name: '',
-    coverAmount: '',
+    policiesId: "",
+    name: "",
+    coverAmount: "",
     premium: null,
-    description: '',
-    features: [],
-    maxDependents: 0,
-    status: '',
-    isSelected: false
+    selectedPolicyId: ""
   },
-  cateringOptions: []
+  cateringOptions: [],
+  status: "Getting Started"
 }
 
 function ContractDisplay({ contractNumber, progress }: { contractNumber: string | undefined, progress: number }) {
@@ -205,95 +183,36 @@ interface AddContractProps {
   isAmendment?: boolean
   existingContract?: ContractData | null
   onSuccess?: () => void
-  onPolicyChange?: (policyId: string) => void
-  onCateringChange?: (cateringId: string, isSelected: boolean) => void
 }
 
-export function AddContract({ 
-  userRole, 
-  isAmendment = false, 
-  existingContract = null, 
-  onSuccess, 
-  onPolicyChange,
-  onCateringChange 
-}: AddContractProps) {
+export function AddContract({ userRole, isAmendment = false, existingContract = null, onSuccess }: AddContractProps) {
   const [currentTab, setCurrentTab] = useState<TabName>("policies")
   const [error, setError] = useState<string | null>(null)
   const [isSubmitDialogOpen, setIsSubmitDialogOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [contractData, setContractData] = useState<ContractData>(() => {
-    if (existingContract && isAmendment) {
-      return {
-        ...existingContract,
-        policiesDetails: {
-          ...existingContract.policiesDetails,
-          isSelected: true // Ensure policy is marked as selected
+  const [contractData, setContractData] = useState<ContractData>(
+    existingContract
+      ? {
+          mainMember: existingContract.mainMember,
+          beneficiaries: existingContract.beneficiaries,
+          dependents: existingContract.dependents,
+          policiesDetails: {
+            policiesId: existingContract.policiesDetails.policiesId,
+            name: existingContract.policiesDetails.name,
+            coverAmount: existingContract.policiesDetails.coverAmount,
+            premium: existingContract.policiesDetails.premium,
+            selectedPolicyId: existingContract.policiesDetails.policiesId
+          },
+          cateringOptions: existingContract.cateringOptions,
+          status: existingContract.status || "Getting Started"
         }
-      }
-    }
-    return {
-    mainMember: {
-      personalInfo: {
-          title: '',
-          firstName: '',
-          lastName: '',
-          initials: '',
-        dateOfBirth: null,
-          gender: '',
-          language: '',
-          maritalStatus: '',
-          nationality: '',
-        idType: "South African ID",
-          idNumber: '',
-          idDocumentUrl: null
-      },
-      contactDetails: [],
-      addressDetails: {
-          streetAddress: '',
-          city: '',
-          stateProvince: '',
-          postalCode: '',
-          country: ''
-      }
-    },
-    beneficiaries: [],
-    dependents: [],
-    policiesDetails: {
-        policiesId: '',
-        name: '',
-        coverAmount: '',
-        premium: null,
-        description: '',
-        features: [],
-        maxDependents: 0,
-        status: '',
-        isSelected: false
-    },
-    cateringOptions: []
-    }
-  })
+      : emptyContractData
+  )
   const [isLoading, setIsLoading] = useState(false)
   const [tabChangeBlocked, setTabChangeBlocked] = useState(false)
   const router = useRouter()
   const [successDialogOpen, setSuccessDialogOpen] = useState(false)
   const [submittedContractNumber, setSubmittedContractNumber] = useState<string | null>(null)
-
-  // Add useEffect to handle policy and catering selection when contract data changes
-  useEffect(() => {
-    if (existingContract && isAmendment) {
-      setContractData(prevData => ({
-        ...prevData,
-        policiesDetails: {
-          ...existingContract.policiesDetails,
-          isSelected: true // Ensure policy is marked as selected
-        },
-        cateringOptions: existingContract.cateringOptions.map(option => ({
-          ...option,
-          isSelected: true // Mark existing catering options as selected
-        }))
-      }))
-    }
-  }, [existingContract, isAmendment])
 
   // Reset function to clear all data
   const resetContractData = () => {
@@ -367,113 +286,43 @@ export function AddContract({
   }
 
   const validateCurrentTab = (tab: TabName): boolean => {
-    let isValid = true;
-    
-    try {
-      // For amendment, skip policy selection validation since it's pre-selected
-      
-      
-      // First check if policies is selected for all tabs except "policies"
-      if (tab !== "policies" && (!contractData.policiesDetails?.policiesId || !contractData.policiesDetails?.name)) {
-        if (isAmendment && existingContract) {
-          return true;
-        }
-        setError("Please select a policy before proceeding to other sections.")
-        return false;
+    if (isAmendment && contractData.mainMember.contractNumber) {
+      // Skip policy validation for amendments with existing contract number
+      if (tab === "policies") {
+        return true;
       }
-
-      switch (tab) {
-        case "policies":
-          // No validation needed for policies tab
-          break;
-
-        case "catering":
-          if (isAmendment && existingContract) {
-            return true;
-          }
-          // Catering is optional, only validate policies selection
-          if (!contractData.policiesDetails?.policiesId || !contractData.policiesDetails?.name) {
-            setError("Please select a policy before proceeding to catering options.")
-            isValid = false;
-          }
-          break;
-
-        case "main-member":
-          // Only validate policies selection, which is already done above
-          break;
-
-        case "dependents":
-          if (isAmendment && existingContract) {
-            return true;
-          }
-          // Only check if main member exists in the table
-          if (!contractData.mainMember.personalInfo.firstName) {
-            setError("Please add main member details before proceeding");
-            return false;
-          }
-          break;
-
-        case "beneficiaries":
-        case "summary":
-          // First validate main member details
-          const { personalInfo: otherTabsMainMember } = contractData.mainMember;
-          const otherTabsRequiredFields = [
-            { key: 'firstName', label: 'First Name' },
-            { key: 'lastName', label: 'Last Name' },
-            { key: 'idNumber', label: 'ID Number' },
-            { key: 'dateOfBirth', label: 'Date of Birth' },
-            { key: 'gender', label: 'Gender' }
-          ];
-
-          const otherTabsMissingFields = otherTabsRequiredFields
-            .filter(({ key }) => {
-              const value = otherTabsMainMember[key as keyof typeof otherTabsMainMember];
-              return key === 'dateOfBirth' ? !value : !String(value).trim();
-            })
-            .map(({ label }) => label);
-
-          //if (otherTabsMissingFields.length > 0) {
-          //  setError(`Please complete the following main member fields: ${otherTabsMissingFields.join(', ')}`);
-          //  return false;
-          //}
-
-          //// Validate ID number format
-          //if (otherTabsMainMember.idType === "South African ID" && !/^\d{13}$/.test(otherTabsMainMember.idNumber)) {
-          //  setError("Main member ID number must be 13 digits");
-          //  return false;
-          //}
-
-          //// Validate contact details
-          //if (contractData.mainMember.contactDetails.length === 0) {
-          //  setError("Please add at least one contact detail for the main member");
-          //  return false;
-          //}
-
-          // Validate beneficiaries
-          if (tab === "summary" && contractData.beneficiaries.length === 0) {
-            setError("At least one beneficiary is required");
-            return false;
-          }
-
-          // Validate total allocation
-          const totalAllocation = contractData.beneficiaries.reduce(
-            (sum, ben) => sum + (Number(ben.personalInfo.beneficiaryPercentage) || 0),
-            0
-          );
-          
-          if (tab === "summary" && totalAllocation !== 100) {
-            setError(`Total beneficiary allocation must be 100% (current: ${totalAllocation}%)`);
-            return false;
-          }
-          break;
-      }
-    } catch (error) {
-      console.error('Validation error:', error);
-      setError("An error occurred during validation")
-      isValid = false
     }
 
-    return isValid
+    switch (tab) {
+      case "policies":
+        return Boolean(contractData.policiesDetails.policiesId)
+      case "catering":
+        return true
+      case "main-member":
+        return Boolean(
+          contractData.mainMember.personalInfo.firstName &&
+          contractData.mainMember.personalInfo.lastName &&
+          contractData.mainMember.personalInfo.idNumber
+        )
+      case "beneficiaries":
+        return contractData.beneficiaries.every(
+          (beneficiary) =>
+            beneficiary.personalInfo.firstName &&
+            beneficiary.personalInfo.lastName &&
+            beneficiary.personalInfo.idNumber
+        )
+      case "dependents":
+        return contractData.dependents.every(
+          (dependent) =>
+            dependent.personalInfo.firstName &&
+            dependent.personalInfo.lastName &&
+            dependent.personalInfo.idNumber
+        )
+      case "summary":
+        return true
+      default:
+        return false
+    }
   }
 
   const handleSubmit = async () => {
@@ -491,10 +340,8 @@ export function AddContract({
       if (contractData.mainMember.contractId) {
         const contractRef = doc(db, 'Contracts', contractData.mainMember.contractId)
         await updateDoc(contractRef, {
-          status: 'In-Force',
-          updatedAt: new Date(),
-          lastModifiedBy: userRole || 'Admin',
-          lastModifiedAt: new Date()
+          status: isAmendment ? 'Amended' : 'In-Force',
+          updatedAt: new Date()
         })
       }
 
@@ -508,11 +355,11 @@ export function AddContract({
       if (onSuccess) {
         onSuccess()
       } else {
-        // Reset form after 2 seconds and return to main page
-        setTimeout(() => {
-          resetContractData()
-          router.push('/')
-        }, 2000)
+      // Reset form after 2 seconds and return to main page
+      setTimeout(() => {
+        resetContractData()
+        router.push('/')
+      }, 2000)
       }
     } catch (error) {
       console.error('Error submitting contract:', error)
@@ -534,6 +381,27 @@ export function AddContract({
 
   return (
     <div className="container mx-auto py-6 space-y-6">
+      {isAmendment && contractData.mainMember.contractNumber && (
+        <div className="bg-blue-50 border border-blue-100 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <h3 className="text-lg font-semibold text-blue-600">Contract Status</h3>
+              <div className="flex items-center gap-4">
+                <p className="text-sm text-blue-600">
+                  Contract Number: {contractData.mainMember.contractNumber}
+                </p>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-blue-600">Current Status:</span>
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                    {contractData.status || 'In Progress'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">{isAmendment ? 'Amend Contract' : 'New Contract'}</h1>
         <ContractDisplay contractNumber={contractData.mainMember.contractNumber} progress={progress} />
@@ -563,7 +431,7 @@ export function AddContract({
             {progress === 100 && (
               <Button onClick={() => setIsSubmitDialogOpen(true)}>
                 {isAmendment ? 'Save Changes' : 'Submit Contract'}
-                </Button>
+              </Button>
             )}
           </div>
         </div>
@@ -609,51 +477,20 @@ export function AddContract({
           <Card className="p-6">
             <PoliciesSelection
               selectedpolicies={contractData.policiesDetails}
-              onpolicieselect={(policies: { policiesId: string; name: string; coverAmount: string; premium: number | null }) => {
-                setContractData({ 
-                  ...contractData, 
-                  policiesDetails: {
-                    ...contractData.policiesDetails,
-                    policiesId: policies.policiesId,
-                    name: policies.name,
-                    coverAmount: policies.coverAmount,
-                    premium: policies.premium,
-                    isSelected: true
-                  }
-                });
-                if (isAmendment && onPolicyChange) {
-                  onPolicyChange(policies.policiesId);
-                }
-              }}
+              onpolicieselect={(policiesDetails) => 
+                setContractData({ ...contractData, policiesDetails: { ...policiesDetails, selectedPolicyId: policiesDetails.policiesId } })}
+              selectedCateringOptions={contractData.cateringOptions}
             />
           </Card>
         </TabsContent>
 
-        <TabsContent value="catering" className="space-y-4">
+        <TabsContent value="catering">
+          <Card className="p-6">
             <CateringOptions
               selectedOptions={contractData.cateringOptions}
-            onChange={(options) => {
-              // Find which option changed by comparing with current options
-              const currentIds = contractData.cateringOptions.map(opt => opt.id);
-              const newIds = options.map(opt => opt.id);
-              
-              // Find the changed option ID
-              const addedId = newIds.find(id => !currentIds.includes(id));
-              const removedId = currentIds.find(id => !newIds.includes(id));
-              
-              // Call onCateringChange with the appropriate parameters
-              if (addedId && onCateringChange) {
-                onCateringChange(addedId, true);
-              } else if (removedId && onCateringChange) {
-                onCateringChange(removedId, false);
-              }
-
-              setContractData({
-                ...contractData,
-                cateringOptions: options
-              });
-            }}
-          />
+              onChange={(cateringOptions) => setContractData({ ...contractData, cateringOptions })}
+            />
+          </Card>
         </TabsContent>
 
         <TabsContent value="summary">

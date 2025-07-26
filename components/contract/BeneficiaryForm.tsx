@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -12,16 +12,22 @@ import { BeneficiaryData } from "./BeneficiaryDetails"
 import { validateSouthAfricanID } from "@/src/utils/idValidation"
 import { AlertCircle } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { collection, query, where, getDocs } from "firebase/firestore"
+import { db } from "@/src/FirebaseConfg"
+import { toast } from "@/components/ui/use-toast"
 
 type ValidationErrors = { [key: string]: string } | null
+
 type TabId = "personal-info" | "contact-details" | "address-details"
 
-type BeneficiaryFormProps = {
+interface BeneficiaryFormProps {
   data: BeneficiaryData
   updateData: (data: BeneficiaryData) => void
+  error?: ValidationErrors
   mainMemberIdNumber?: string
-  errors?: ValidationErrors
+  validationErrors?: ValidationErrors
   onTabChange?: (tab: TabId) => void
+  isEditing?: boolean
 }
 
 type CateringOptionsProps = {
@@ -29,42 +35,78 @@ type CateringOptionsProps = {
   onChange: (options: string[]) => void
 }
 
-export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors, onTabChange }: BeneficiaryFormProps) {
+export function BeneficiaryForm({ 
+  data, 
+  updateData, 
+  error: externalError, 
+  mainMemberIdNumber,
+  validationErrors = {},
+  onTabChange,
+  isEditing = false
+}: BeneficiaryFormProps) {
   const [personalInfo, setPersonalInfo] = useState(data.personalInfo)
   const [contactDetails, setContactDetails] = useState(data.contactDetails)
   const [addressDetails, setAddressDetails] = useState(data.addressDetails)
-  const [activeTab, setActiveTab] = useState("personal-info")
+  const [activeTab, setActiveTab] = useState<TabId>("personal-info")
   const [idValidationErrors, setIdValidationErrors] = useState<string[]>([])
+  const [autoPopulatedMemberId, setAutoPopulatedMemberId] = useState<string | null>(null)
+  const [passportCheckTimeout, setPassportCheckTimeout] = useState<NodeJS.Timeout | null>(null)
+  const [idCheckTimeout, setIdCheckTimeout] = useState<NodeJS.Timeout | null>(null)
+  const [isExistingMember, setIsExistingMember] = useState(false)
+  const [memberCheckComplete, setMemberCheckComplete] = useState(false)
 
-  const handlePersonalInfoChange = (field: string, value: string | Date | null | number) => {
-    const updatedInfo = { ...personalInfo, [field]: value };
+  const handlePersonalInfoChange = (field: string, value: string | Date | null) => {
+    const updatedInfo = { ...personalInfo, [field]: value }
 
-    // Validate ID number in real-time
-    if (field === "idNumber" && typeof value === "string" && updatedInfo.idType === "South African ID") {
-      // First check if ID matches main member's ID
-      if (mainMemberIdNumber && value === mainMemberIdNumber) {
-        setIdValidationErrors(['Beneficiary cannot have the same ID number as the main member']);
-        return;
-      }
+    // Reset auto-populated state when ID number changes
+    if (field === "idNumber") {
+      setAutoPopulatedMemberId(null);
+      setIdValidationErrors([]);
+      setMemberCheckComplete(false);
+      setIsExistingMember(false);
 
-      const validationResult = validateSouthAfricanID(value);
-      setIdValidationErrors(validationResult.errors);
+      if (typeof value === "string") {
+        if (updatedInfo.idType === "South African ID") {
+          // First check if ID matches main member's ID
+          if (mainMemberIdNumber && value === mainMemberIdNumber) {
+            setIdValidationErrors(['Beneficiary cannot have the same ID number as the main member']);
+            return;
+          }
 
-      // Auto-fill date of birth and gender if valid
-      if (validationResult.isValid) {
-        if (validationResult.dateOfBirth) {
-          updatedInfo.dateOfBirth = validationResult.dateOfBirth;
-        }
-        if (validationResult.gender) {
-          updatedInfo.gender = validationResult.gender;
-        }
-      } else {
-        // Even if not fully valid, still try to auto-fill what we can
-        if (validationResult.dateOfBirth) {
-          updatedInfo.dateOfBirth = validationResult.dateOfBirth;
-        }
-        if (validationResult.gender) {
-          updatedInfo.gender = validationResult.gender;
+          // Only validate if we have a complete ID number
+          if (value.length === 13) {
+            const validationResult = validateSouthAfricanID(value);
+            if (!validationResult.isValid) {
+              setIdValidationErrors(validationResult.errors);
+            } else {
+              // Auto-fill date of birth and gender if valid
+              if (validationResult.dateOfBirth) {
+                updatedInfo.dateOfBirth = validationResult.dateOfBirth;
+              }
+              if (validationResult.gender) {
+                updatedInfo.gender = validationResult.gender;
+              }
+              // Check for existing member in Firestore
+              checkExistingMember(value, updatedInfo);
+            }
+          }
+        } else if (updatedInfo.idType === "Passport") {
+          // Clear any existing timeout
+          if (passportCheckTimeout) {
+            clearTimeout(passportCheckTimeout);
+          }
+
+          // Set a new timeout for passport check
+          const timeout = setTimeout(() => {
+            if (mainMemberIdNumber && value === mainMemberIdNumber) {
+              setIdValidationErrors(['Beneficiary cannot have the same passport number as the main member']);
+              return;
+            }
+            // Check for existing member in Firestore
+            checkExistingMember(value, updatedInfo);
+          }, 1000); // Wait for 1 second after typing stops
+
+          setPassportCheckTimeout(timeout);
         }
       }
     }
@@ -72,11 +114,106 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors, 
     // Clear validation errors when switching ID type
     if (field === "idType") {
       setIdValidationErrors([]);
+      updatedInfo.idNumber = '';
+      updatedInfo.dateOfBirth = null;
+      updatedInfo.gender = '';
     }
 
-    setPersonalInfo(updatedInfo);
-    updateData({ ...data, personalInfo: updatedInfo });
+    setPersonalInfo(updatedInfo)
+    updateData({ ...data, personalInfo: updatedInfo })
   }
+
+  // Move checkExistingMember function outside handlePersonalInfoChange
+  const checkExistingMember = async (value: string, updatedInfo: typeof personalInfo) => {
+    try {
+      const membersRef = collection(db, 'Members');
+      const q = query(
+        membersRef,
+        where('idNumber', '==', value),
+        where('idType', '==', updatedInfo.idType)
+      );
+      const memberSnapshot = await getDocs(q);
+
+      console.log("Query complete, found members:", !memberSnapshot.empty);
+
+      setMemberCheckComplete(true)
+      setIsExistingMember(!memberSnapshot.empty)
+
+      if (!memberSnapshot.empty) {
+        const memberDoc = memberSnapshot.docs[0];
+        const memberData = memberDoc.data();
+
+        // Store the member ID for later use
+        setAutoPopulatedMemberId(memberDoc.id);
+
+        // Auto-populate fields
+        const populatedInfo = {
+          ...updatedInfo,
+          title: memberData.title || '',
+          firstName: memberData.firstName || '',
+          lastName: memberData.lastName || '',
+          initials: memberData.initials || '',
+          dateOfBirth: memberData.dateOfBirth ? new Date(memberData.dateOfBirth.seconds * 1000) : null,
+          gender: memberData.gender || '',
+          nationality: memberData.nationality || '',
+          idDocumentUrl: memberData.idDocumentUrl || null,
+        };
+
+        // Fetch contact details
+        const contactsRef = collection(db, 'Contacts');
+        const contactsQuery = query(contactsRef, where('memberId', '==', memberDoc.id));
+        const contactsSnapshot = await getDocs(contactsQuery);
+        const newContactDetails = contactsSnapshot.docs.map(doc => ({
+          type: doc.data().type as "Email" | "Phone Number",
+          value: doc.data().value
+        }));
+
+        // Fetch address details
+        const addressRef = collection(db, 'Address');
+        const addressQuery = query(addressRef, where('memberId', '==', memberDoc.id));
+        const addressSnapshot = await getDocs(addressQuery);
+        let newAddressDetails = {
+          streetAddress: '',
+          city: '',
+          stateProvince: '',
+          postalCode: '',
+          country: ''
+        };
+        
+        if (!addressSnapshot.empty) {
+          const addressData = addressSnapshot.docs[0].data();
+          newAddressDetails = {
+            streetAddress: addressData.streetAddress || '',
+            city: addressData.city || '',
+            stateProvince: addressData.stateProvince || '',
+            postalCode: addressData.postalCode || '',
+            country: addressData.country || ''
+          };
+        }
+
+        // Update all form sections
+        setPersonalInfo(populatedInfo);
+        setContactDetails(newContactDetails);
+        setAddressDetails(newAddressDetails);
+
+        // Update parent component
+        updateData({
+          personalInfo: populatedInfo,
+          contactDetails: newContactDetails,
+          addressDetails: newAddressDetails
+        });
+
+        toast({
+          title: "Existing Member Found",
+          description: `Member details for ${memberData.firstName} ${memberData.lastName} have been auto-populated.`,
+          variant: "default",
+        });
+      }
+    } catch (error) {
+      console.error('Error checking member:', error);
+      setIdValidationErrors(prev => [...prev, 'Error checking member details. Please try again.']);
+    }
+  };
 
   const handleContactDetailsChange = (index: number, field: string, value: string) => {
     const updatedContacts = [...contactDetails]
@@ -102,20 +239,20 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors, 
     updateData({ ...data, contactDetails: updatedContacts })
   }
 
-  // Add function to check missing fields in each tab
+  // Update getMissingFieldsSummary to use validationErrors prop directly
   const getMissingFieldsSummary = () => {
-    if (!errors) return null;
+    if (!validationErrors || typeof validationErrors !== 'object') return null;
     
-    const personalInfoMissing = Object.keys(errors).some(key => 
+    const personalInfoMissing = Object.keys(validationErrors).some(key => 
       ['title', 'firstName', 'lastName', 'initials', 'dateOfBirth', 'gender', 
-       'language', 'maritalStatus', 'nationality', 'idType', 'idNumber'].includes(key)
+       'relationshipToMainMember', 'nationality', 'idType', 'idNumber', 'beneficiaryPercentage'].includes(key)
     );
     
-    const contactDetailsMissing = Object.keys(errors).some(key => 
+    const contactDetailsMissing = Object.keys(validationErrors).some(key => 
       key === 'contacts' || key.startsWith('contact')
     );
     
-    const addressDetailsMissing = Object.keys(errors).some(key => 
+    const addressDetailsMissing = Object.keys(validationErrors).some(key => 
       ['streetAddress', 'city', 'stateProvince', 'postalCode', 'country'].includes(key)
     );
 
@@ -133,32 +270,32 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors, 
 
   return (
     <div className="space-y-4">
-      {errors && getMissingFieldsSummary()}
+      {validationErrors && Object.keys(validationErrors).length > 0 && getMissingFieldsSummary()}
       <Tabs 
         defaultValue="personal-info" 
+        value={activeTab}
+        onValueChange={(value) => {
+          setActiveTab(value as TabId);
+          onTabChange?.(value as TabId);
+        }}
         className="w-full"
-        onValueChange={(value) => onTabChange?.(value as TabId)}
       >
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="personal-info">Personal Details</TabsTrigger>
+          <TabsTrigger value="personal-info">Personal Info</TabsTrigger>
           <TabsTrigger value="contact-details">Contact Details</TabsTrigger>
           <TabsTrigger value="address-details">Address Details</TabsTrigger>
         </TabsList>
-
         <TabsContent value="personal-info">
           <Card className="p-4">
-            <div className="grid grid-cols-3 gap-3">
-              <div className="flex gap-3 col-span-3">
-                <div className="flex-1">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
                   <Label htmlFor="type-of-id">Type of ID</Label>
                   <Select
                     value={personalInfo.idType}
-                    onValueChange={(value: "South African ID" | "Passport") => {
-                      handlePersonalInfoChange("idType", value);
-                      setIdValidationErrors([]);
-                    }}
+                    onValueChange={(value) => handlePersonalInfoChange("idType", value)}
+                    disabled={isEditing}
                   >
-                    <SelectTrigger id="type-of-id" className={errors?.idType ? "border-red-500" : ""}>
+                    <SelectTrigger id="type-of-id" className={validationErrors?.idType ? "border-red-500" : ""}>
                       <SelectValue placeholder="Select ID type" />
                     </SelectTrigger>
                     <SelectContent>
@@ -166,51 +303,51 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors, 
                       <SelectItem value="Passport">Passport</SelectItem>
                     </SelectContent>
                   </Select>
-                  {errors?.idType && (
-                    <p className="text-sm text-red-500 mt-1">{errors.idType}</p>
+                  {validationErrors?.idType && (
+                  <p className="text-sm text-red-500">{validationErrors.idType}</p>
                   )}
                 </div>
-
-                <div className="flex-1">
-                  <Label htmlFor="id-input">
-                    ID Number / Passport Number
+                <div className="space-y-2">
+                  <Label htmlFor="id-number">
+                  ID Number / Passport Number
                     {personalInfo.idType === "South African ID" && (
                       <span className="text-sm text-gray-500 ml-2">(13 digits)</span>
                     )}
                   </Label>
                   <Input
-                    id="id-input"
-                    data-testid="id-input"
-                    aria-label="ID Number / Passport Number"
+                    id="id-number"
+                    placeholder={personalInfo.idType === "South African ID" ? "Enter 13 digit ID number" : "Enter passport number"}
                     value={personalInfo.idNumber}
                     onChange={(e) => handlePersonalInfoChange("idNumber", e.target.value)}
-                    className={errors?.idNumber ? "border-red-500" : ""}
+                    className={`border-2 ${
+                      validationErrors?.idNumber || idValidationErrors.length > 0 
+                        ? "border-red-500" 
+                        : memberCheckComplete
+                          ? isExistingMember
+                            ? "border-yellow-500"
+                            : "border-green-500"
+                          : ""
+                    }`}
+                    maxLength={personalInfo.idType === "South African ID" ? 13 : 20}
+                    disabled={isEditing}
                   />
-                  {errors?.idNumber && (
-                    <p className="text-sm text-red-500 mt-1">{errors.idNumber}</p>
+                  {validationErrors?.idNumber && (
+                  <p className="text-sm text-red-500">{validationErrors.idNumber}</p>
+                  )}
+                  {idValidationErrors.length > 0 && (
+                  <div className="text-sm text-red-500">
+                    {idValidationErrors.map((error, index) => (
+                      <p key={index}>{error}</p>
+                    ))}
+                  </div>
                   )}
                 </div>
               </div>
-
-              {personalInfo.idType === "South African ID" && idValidationErrors.length > 0 && (
-                <div className="col-span-3">
-                  <Alert variant="destructive" className="mt-1">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>
-                      <ul className="list-disc pl-4">
-                        {idValidationErrors.map((error, index) => (
-                          <li key={index} className="text-sm">{error}</li>
-                        ))}
-                      </ul>
-                    </AlertDescription>
-                  </Alert>
-                </div>
-              )}
-
+            <div className="grid grid-cols-3 gap-3 mt-4">
               <div>
                 <Label htmlFor="title">Title</Label>
                 <Select value={personalInfo.title} onValueChange={(value) => handlePersonalInfoChange("title", value)}>
-                  <SelectTrigger id="title" className={errors?.title ? "border-red-500" : ""}>
+                      <SelectTrigger id="title" className={validationErrors?.title ? "border-red-500" : ""}>
                     <SelectValue placeholder="Select title" />
                   </SelectTrigger>
                   <SelectContent>
@@ -220,8 +357,75 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors, 
                     <SelectItem value="Dr">Dr</SelectItem>
                   </SelectContent>
                 </Select>
-                {errors?.title && (
-                  <p className="text-sm text-red-500 mt-1">{errors.title}</p>
+                    {validationErrors?.title && (
+                  <p className="text-sm text-red-500">Title is required</p>
+                )}
+              </div>
+
+              <div>
+                <Label htmlFor="firstName">First Name</Label>
+                <Input
+                  id="firstName"
+                  value={personalInfo.firstName}
+                  onChange={(e) => handlePersonalInfoChange("firstName", e.target.value)}
+                    className={validationErrors?.firstName ? "border-red-500" : ""}
+                />
+                  {validationErrors?.firstName && (
+                  <p className="text-sm text-red-500">First name is required</p>
+                )}
+              </div>
+
+              <div>
+                <Label htmlFor="lastName">Last Name</Label>
+                <Input
+                  id="lastName"
+                  value={personalInfo.lastName}
+                  onChange={(e) => handlePersonalInfoChange("lastName", e.target.value)}
+                    className={validationErrors?.lastName ? "border-red-500" : ""}
+                />
+                  {validationErrors?.lastName && (
+                  <p className="text-sm text-red-500">Last name is required</p>
+                )}
+              </div>
+
+              <div>
+                <Label htmlFor="initials">Initials</Label>
+                <Input
+                  id="initials"
+                  value={personalInfo.initials}
+                  onChange={(e) => handlePersonalInfoChange("initials", e.target.value)}
+                    className={validationErrors?.initials ? "border-red-500" : ""}
+                />
+                  {validationErrors?.initials && (
+                  <p className="text-sm text-red-500">Initials are required</p>
+                )}
+              </div>
+
+              <div>
+                <Label htmlFor="dateOfBirth">Date of Birth</Label>
+                <DatePicker
+                  date={personalInfo.dateOfBirth}
+                  onChange={(date) => handlePersonalInfoChange("dateOfBirth", date)}
+                />
+                  {validationErrors?.dateOfBirth && (
+                  <p className="text-sm text-red-500">Date of birth is required</p>
+                )}
+              </div>
+
+              <div>
+                <Label htmlFor="gender">Gender</Label>
+                <Select value={personalInfo.gender} onValueChange={(value) => handlePersonalInfoChange("gender", value)}>
+                    <SelectTrigger id="gender" className={validationErrors?.gender ? "border-red-500" : ""}>
+                    <SelectValue placeholder="Select gender" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Male">Male</SelectItem>
+                    <SelectItem value="Female">Female</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+                  {validationErrors?.gender && (
+                  <p className="text-sm text-red-500">Gender is required</p>
                 )}
               </div>
 
@@ -231,7 +435,7 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors, 
                   value={personalInfo.relationshipToMainMember} 
                   onValueChange={(value) => handlePersonalInfoChange("relationshipToMainMember", value)}
                 >
-                  <SelectTrigger id="relationshipToMainMember" className={errors?.relationshipToMainMember ? "border-red-500" : ""}>
+                  <SelectTrigger id="relationship" className={validationErrors?.relationshipToMainMember ? "border-red-500" : ""}>
                     <SelectValue placeholder="Select relationship" />
                   </SelectTrigger>
                   <SelectContent>
@@ -242,96 +446,15 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors, 
                     <SelectItem value="Other">Other</SelectItem>
                   </SelectContent>
                 </Select>
-                {errors?.relationshipToMainMember && (
-                  <p className="text-sm text-red-500 mt-1">{errors.relationshipToMainMember}</p>
-                )}
-              </div>
-
-              <div>
-                <Label htmlFor="beneficiaryPercentage">Benefit %</Label>
-                <Input
-                  id="beneficiaryPercentage"
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={personalInfo.beneficiaryPercentage}
-                  onChange={(e) => handlePersonalInfoChange("beneficiaryPercentage", parseFloat(e.target.value))}
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="firstName">First Name</Label>
-                <Input
-                  id="firstName"
-                  value={personalInfo.firstName}
-                  onChange={(e) => handlePersonalInfoChange("firstName", e.target.value)}
-                  className={errors?.firstName ? "border-red-500" : ""}
-                />
-                {errors?.firstName && (
-                  <p className="text-sm text-red-500 mt-1">{errors.firstName}</p>
-                )}
-              </div>
-
-              <div>
-                <Label htmlFor="lastName">Last Name</Label>
-                <Input
-                  id="lastName"
-                  value={personalInfo.lastName}
-                  onChange={(e) => handlePersonalInfoChange("lastName", e.target.value)}
-                  className={errors?.lastName ? "border-red-500" : ""}
-                />
-                {errors?.lastName && (
-                  <p className="text-sm text-red-500 mt-1">{errors.lastName}</p>
-                )}
-              </div>
-
-              <div>
-                <Label htmlFor="initials">Initials</Label>
-                <Input
-                  id="initials"
-                  value={personalInfo.initials}
-                  onChange={(e) => handlePersonalInfoChange("initials", e.target.value)}
-                  className={errors?.initials ? "border-red-500" : ""}
-                />
-                {errors?.initials && (
-                  <p className="text-sm text-red-500 mt-1">{errors.initials}</p>
-                )}
-              </div>
-
-              <div>
-                <Label htmlFor="dateOfBirth">Date of Birth</Label>
-                <DatePicker
-                  id="dateOfBirth"
-                  selected={personalInfo.dateOfBirth}
-                  onSelect={(date) => handlePersonalInfoChange("dateOfBirth", date)}
-                  className={errors?.dateOfBirth ? "border-red-500" : ""}
-                />
-                {errors?.dateOfBirth && (
-                  <p className="text-sm text-red-500 mt-1">{errors.dateOfBirth}</p>
-                )}
-              </div>
-
-              <div>
-                <Label htmlFor="gender">Gender</Label>
-                <Select value={personalInfo.gender} onValueChange={(value) => handlePersonalInfoChange("gender", value)}>
-                  <SelectTrigger id="gender" className={errors?.gender ? "border-red-500" : ""}>
-                    <SelectValue placeholder="Select gender" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Male">Male</SelectItem>
-                    <SelectItem value="Female">Female</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-                {errors?.gender && (
-                  <p className="text-sm text-red-500 mt-1">{errors.gender}</p>
+                {validationErrors?.relationshipToMainMember && (
+                  <p className="text-sm text-red-500">Relationship is required</p>
                 )}
               </div>
 
               <div>
                 <Label htmlFor="nationality">Nationality</Label>
                 <Select value={personalInfo.nationality} onValueChange={(value) => handlePersonalInfoChange("nationality", value)}>
-                  <SelectTrigger id="nationality" className={errors?.nationality ? "border-red-500" : ""}>
+                    <SelectTrigger id="nationality" className={validationErrors?.nationality ? "border-red-500" : ""}>
                     <SelectValue placeholder="Select nationality" />
                   </SelectTrigger>
                   <SelectContent>
@@ -345,8 +468,27 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors, 
                     <SelectItem value="Other">Other</SelectItem>
                   </SelectContent>
                 </Select>
-                {errors?.nationality && (
-                  <p className="text-sm text-red-500 mt-1">{errors.nationality}</p>
+                  {validationErrors?.nationality && (
+                  <p className="text-sm text-red-500">Nationality is required</p>
+                )}
+                </div>
+
+              <div>
+                <Label htmlFor="beneficiary-percentage">Benefit %</Label>
+                <Input
+                  id="benefit-%"
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={personalInfo.beneficiaryPercentage || ''}
+                  onChange={(e) => {
+                    const value = e.target.value === '' ? null : e.target.value;
+                    handlePersonalInfoChange("beneficiaryPercentage", value);
+                  }}
+                  className={validationErrors?.beneficiaryPercentage ? "border-red-500" : ""}
+                />
+                {validationErrors?.beneficiaryPercentage && (
+                  <p className="text-sm text-red-500">Benefit percentage is required</p>
                 )}
               </div>
             </div>
@@ -356,10 +498,10 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors, 
         <TabsContent value="contact-details">
           <Card className="p-4">
             <div className="space-y-2">
-              {errors?.contacts && (
-                <Alert variant="destructive" className="mb-4">
+              {validationErrors?.contacts && (
+                <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{errors.contacts}</AlertDescription>
+                  <AlertDescription>{validationErrors.contacts}</AlertDescription>
                 </Alert>
               )}
               {contactDetails.map((contact, index) => (
@@ -370,7 +512,7 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors, 
                         value={contact.type}
                         onValueChange={(value: "Email" | "Phone Number") => handleContactDetailsChange(index, "type", value)}
                       >
-                        <SelectTrigger className={`w-[180px] ${errors?.[`contact${index}`] ? "border-red-500" : ""}`}>
+                        <SelectTrigger className={validationErrors?.[`contact${index}Type`] ? "border-red-500" : ""}>
                           <SelectValue placeholder="Select contact type" />
                         </SelectTrigger>
                         <SelectContent>
@@ -378,25 +520,30 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors, 
                           <SelectItem value="Phone Number">Phone Number</SelectItem>
                         </SelectContent>
                       </Select>
+                      {validationErrors?.[`contact${index}Type`] && (
+                        <p className="text-sm text-red-500">Contact type is required</p>
+                      )}
                     </div>
                     <div className="flex-[2]">
                       <Input
                         value={contact.value}
                         onChange={(e) => handleContactDetailsChange(index, "value", e.target.value)}
-                        className={errors?.[`contact${index}`] ? "border-red-500" : ""}
+                        className={validationErrors?.[`contact${index}Value`] ? "border-red-500" : ""}
                         placeholder={contact.type === "Email" ? "Enter email address" : "Enter phone number"}
                       />
+                      {validationErrors?.[`contact${index}Value`] && (
+                        <p className="text-sm text-red-500">
+                          {contact.type === "Email" ? "Valid email is required" : "Valid phone number is required"}
+                        </p>
+                      )}
                     </div>
                     <Button type="button" variant="destructive" size="sm" onClick={() => handleRemoveContact(index)}>
                       Remove
                     </Button>
                   </div>
-                  {errors?.[`contact${index}`] && (
-                    <p className="text-sm text-red-500">{errors[`contact${index}`]}</p>
-                  )}
                 </div>
               ))}
-              <Button id="Add Contact" type="button" onClick={handleAddContact} size="sm" className="mt-2">
+              <Button type="button" onClick={handleAddContact} size="sm" className="mt-2">
                 Add Contact
               </Button>
             </div>
@@ -412,10 +559,10 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors, 
                   id="streetAddress"
                   value={addressDetails.streetAddress}
                   onChange={(e) => handleAddressDetailsChange("streetAddress", e.target.value)}
-                  className={errors?.streetAddress ? "border-red-500" : ""}
+                  className={validationErrors?.streetAddress ? "border-red-500" : ""}
                 />
-                {errors?.streetAddress && (
-                  <p className="text-sm text-red-500 mt-1">{errors.streetAddress}</p>
+                {validationErrors?.streetAddress && (
+                  <p className="text-sm text-red-500">Street address is required</p>
                 )}
               </div>
               <div>
@@ -424,10 +571,10 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors, 
                   id="city"
                   value={addressDetails.city}
                   onChange={(e) => handleAddressDetailsChange("city", e.target.value)}
-                  className={errors?.city ? "border-red-500" : ""}
+                  className={validationErrors?.city ? "border-red-500" : ""}
                 />
-                {errors?.city && (
-                  <p className="text-sm text-red-500 mt-1">{errors.city}</p>
+                {validationErrors?.city && (
+                  <p className="text-sm text-red-500">City is required</p>
                 )}
               </div>
               <div>
@@ -436,10 +583,10 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors, 
                   id="stateProvince"
                   value={addressDetails.stateProvince}
                   onChange={(e) => handleAddressDetailsChange("stateProvince", e.target.value)}
-                  className={errors?.stateProvince ? "border-red-500" : ""}
+                  className={validationErrors?.stateProvince ? "border-red-500" : ""}
                 />
-                {errors?.stateProvince && (
-                  <p className="text-sm text-red-500 mt-1">{errors.stateProvince}</p>
+                {validationErrors?.stateProvince && (
+                  <p className="text-sm text-red-500">State/Province is required</p>
                 )}
               </div>
               <div>
@@ -448,10 +595,10 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors, 
                   id="postalCode"
                   value={addressDetails.postalCode}
                   onChange={(e) => handleAddressDetailsChange("postalCode", e.target.value)}
-                  className={errors?.postalCode ? "border-red-500" : ""}
+                  className={validationErrors?.postalCode ? "border-red-500" : ""}
                 />
-                {errors?.postalCode && (
-                  <p className="text-sm text-red-500 mt-1">{errors.postalCode}</p>
+                {validationErrors?.postalCode && (
+                  <p className="text-sm text-red-500">Postal code is required</p>
                 )}
               </div>
               <div>
@@ -460,7 +607,7 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors, 
                   value={addressDetails.country}
                   onValueChange={(value) => handleAddressDetailsChange("country", value)}
                 >
-                  <SelectTrigger id="country" className={errors?.country ? "border-red-500" : ""}>
+                  <SelectTrigger id="country" className={validationErrors?.country ? "border-red-500" : ""}>
                     <SelectValue placeholder="Select country" />
                   </SelectTrigger>
                   <SelectContent>
@@ -468,8 +615,8 @@ export function BeneficiaryForm({ data, updateData, mainMemberIdNumber, errors, 
                     <SelectItem value="Other">Other</SelectItem>
                   </SelectContent>
                 </Select>
-                {errors?.country && (
-                  <p className="text-sm text-red-500 mt-1">{errors.country}</p>
+                {validationErrors?.country && (
+                  <p className="text-sm text-red-500">Country is required</p>
                 )}
               </div>
             </div>
